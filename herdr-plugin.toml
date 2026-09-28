@@ -1,0 +1,21 @@
+id = "herdr-lens"
+name = "Herdr Lens"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Open the current agent conversation in a local web view"
+platforms = ["macos", "linux"]
+
+[[build]]
+command = ["cargo", "build", "--release"]
+
+[[build]]
+command = ["bun", "install", "--cwd", "web", "--frozen-lockfile"]
+
+[[build]]
+command = ["bun", "run", "--cwd", "web", "build"]
+
+[[actions]]
+id = "open"
+title = "Open agent conversation in browser"
+contexts = ["pane"]
+command = ["target/release/herdr-lens", "open"]

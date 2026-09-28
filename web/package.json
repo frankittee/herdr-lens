@@ -1,0 +1,12 @@
+{
+  "name": "herdr-lens-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --project tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}

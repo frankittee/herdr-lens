@@ -1,0 +1,4 @@
+[tools]
+bun = "latest"
+mr-boxington = "latest"
+rust = "latest"
