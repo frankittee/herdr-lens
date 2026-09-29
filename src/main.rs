@@ -32,10 +32,16 @@ struct HerdrLens {
 enum Command {
     Startup(Startup),
     Open(Open),
-    Link(Link),
+    Copy(Copy),
     Dump(Dump),
     Serve(Serve),
+    HoldClipboard(HoldClipboard),
 }
+
+/// Keep copied text on the Linux clipboard after the action exits
+#[derive(Args)]
+#[usage(hide)]
+struct HoldClipboard {}
 
 /// Start the shared viewer when the Herdr server starts
 #[derive(Args)]
@@ -45,9 +51,9 @@ struct Startup {}
 #[derive(Args)]
 struct Open {}
 
-/// Plugin action: show a viewer URL for manual SSH forwarding
+/// Plugin action: copy and show a viewer URL for manual SSH forwarding
 #[derive(Args)]
-struct Link {}
+struct Copy {}
 
 /// Print the parsed conversation as JSON for debugging
 #[derive(Args)]
@@ -71,9 +77,10 @@ fn main() -> ExitCode {
     let (result, notify_on_error) = match cli.command {
         Command::Startup(_) => (launch::start_shared(), false),
         Command::Open(_) => (open(&herdr), true),
-        Command::Link(_) => (link(&herdr), true),
+        Command::Copy(_) => (copy(&herdr), true),
         Command::Dump(_) => (dump(&herdr), false),
         Command::Serve(args) => (serve(&herdr, args.pane.as_deref(), args.shared), false),
+        Command::HoldClipboard(_) => (launch::hold_clipboard(), false),
     };
     let Err(err) = result else {
         return ExitCode::SUCCESS;
@@ -88,18 +95,34 @@ fn main() -> ExitCode {
 
 /// Reads the conversation once so problems surface as a Herdr toast, then hands off to the server.
 fn open(herdr: &Herdr) -> Result<()> {
-    let pin = invoking_pin(herdr)?;
-    let address = shared::read()?;
-    let url = server::shared_url(address.port, &address.token, &pin)?;
+    let url = invoking_url(herdr)?;
     launch::open_browser(&url)
 }
 
-/// Starts the remote viewer and delivers its URL through the Herdr client notification.
-fn link(herdr: &Herdr) -> Result<()> {
+/// Delivers the viewer URL through the clipboard (when available) and a Herdr notification.
+fn copy(herdr: &Herdr) -> Result<()> {
+    let url = invoking_url(herdr)?;
+    let title = if launch::copy_to_clipboard(&url) {
+        "Herdr Lens: link copied"
+    } else {
+        "Herdr Lens: viewer link"
+    };
+    herdr.show_notification(title, &url)
+}
+
+fn invoking_url(herdr: &Herdr) -> Result<String> {
     let pin = invoking_pin(herdr)?;
-    let address = shared::read()?;
-    let url = server::shared_url(address.port, &address.token, &pin)?;
-    herdr.show_notification("Herdr Lens: viewer link", &url)
+    let address = shared_address()?;
+    server::shared_url(address.port, &address.token, &pin)
+}
+
+/// The startup hook only runs when the Herdr server starts, so start the viewer if it is missing.
+fn shared_address() -> Result<shared::Address> {
+    if let Ok(address) = shared::read() {
+        return Ok(address);
+    }
+    launch::start_shared()?;
+    shared::read()
 }
 
 fn serve(herdr: &Herdr, pane_id: Option<&str>, shared: bool) -> Result<()> {

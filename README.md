@@ -11,6 +11,7 @@ A [Herdr](https://herdr.dev) plugin that opens the conversation of the agent in 
 ## Requirements
 
 - Herdr 0.7.0 or newer, on macOS or Linux.
+- Prebuilt installs need `sh`, `tar`, and `curl` or an authenticated [`gh`](https://cli.github.com). Prebuilt packages cover macOS (arm64, x86_64) and Linux (arm64, x86_64, static musl).
 - Building from source needs [`mise`](https://mise.jdx.dev), which provides Rust, Bun, and mr-boxington (`mbx`). Herdr does not install missing toolchains.
 
 ## Install
@@ -21,7 +22,9 @@ From GitHub:
 herdr plugin install frankittee/herdr-lens
 ```
 
-Herdr clones the repository, runs the manifest build steps (`mbx build --release`, then `bun install` and `bun run build` in `web/`), and links the plugin. Pin a revision with `--ref <ref>`, or run non-interactively with `--yes`. The repository is private, so cloning needs configured `git` credentials for GitHub.
+Herdr clones the repository, runs the manifest build step `sh scripts/install.sh`, and links the plugin. The script downloads `herdr-lens-<target>.tar.gz` from the GitHub release `v<version>` matching `herdr-plugin.toml`, verifies its sha256, and unpacks the binary to `target/release/` and the UI to `web/dist/`. If no package fits or the download fails, it builds from source with `mise`. Set `HERDR_LENS_FROM_SOURCE=1` to always build from source, for example when installing an unreleased `--ref`. Pin a revision with `--ref <ref>`, or run non-interactively with `--yes`. The repository is private, so cloning needs configured `git` credentials for GitHub, and downloading releases needs `gh auth login`.
+
+To publish a release, bump `version` in `herdr-plugin.toml`, then push the tag `v<version>`. `.github/workflows/release.yml` checks that the tag matches the manifest and uploads the packages.
 
 From a local checkout:
 
@@ -46,8 +49,8 @@ Both actions appear in the pane context menu and pin the invoking pane:
 
 | Action | What it does |
 | --- | --- |
-| **Open agent conversation in browser** | Opens the invoking pane's conversation in the default browser. Use this when Herdr runs on this machine. |
-| **Show agent conversation link for SSH forwarding** | Shows the viewer URL as a Herdr notification instead of opening a browser. Use this when attached with `herdr --remote`. |
+| **Open link** | Opens the invoking pane's conversation in the default browser. Use this when Herdr runs on this machine. |
+| **Copy link** | Copies the viewer URL to the system clipboard when one is available and shows it as a Herdr notification instead of opening a browser. Use this when attached with `herdr --remote`. |
 
 The viewer opens on the invoking pane. The sidebar switches to another agent only while that agent is still in Herdr's agent list and its pane, terminal, and agent still match.
 
@@ -60,13 +63,13 @@ Add both actions to `~/.config/herdr/config.toml` (`%APPDATA%\herdr\config.toml`
 key = "prefix+shift+o"
 type = "plugin_action"
 command = "herdr-lens.open"
-description = "Open agent conversation in browser"
+description = "Open link"
 
 [[keys.command]]
 key = "prefix+shift+c"
 type = "plugin_action"
-command = "herdr-lens.link"
-description = "Show agent conversation link"
+command = "herdr-lens.copy"
+description = "Copy link"
 ```
 
 Neither key is a Herdr default. Apply the change with `herdr server reload-config` (or **reload config** in Herdr's global menu); keybindings reload without restarting panes. `herdr config check` validates the file first, and each `description` is what `prefix+?` lists.
@@ -81,7 +84,7 @@ The viewer binds to `127.0.0.1` on the remote host. Forward the port shown in th
 ssh -N -L 12345:127.0.0.1:12345 workbox
 ```
 
-Then open the notified URL on this machine. If the local port is occupied, choose another local port and replace only the port in the URL. Herdr exposes no remote-client flag or local clipboard API to plugin actions, so pick the link action explicitly for remote sessions.
+Then open the notified URL on this machine. If the local port is occupied, choose another local port and replace only the port in the URL. Herdr exposes no remote-client flag or local clipboard API to plugin actions, so pick the Copy link action explicitly for remote sessions.
 
 ## Supported agents
 

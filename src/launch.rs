@@ -83,6 +83,73 @@ pub fn open_browser(url: &str) -> Result<()> {
     Ok(())
 }
 
+/// Copies text to the system clipboard; returns false when no clipboard is available.
+#[cfg(not(target_os = "linux"))]
+pub fn copy_to_clipboard(text: &str) -> bool {
+    arboard::Clipboard::new().is_ok_and(|mut clipboard| clipboard.set_text(text).is_ok())
+}
+
+/// X11 and Wayland clipboards are served by the owning process, so a background
+/// `hold-clipboard` process keeps the text available after the action exits.
+#[cfg(target_os = "linux")]
+pub fn copy_to_clipboard(text: &str) -> bool {
+    hold_in_background(text).is_ok()
+}
+
+#[cfg(target_os = "linux")]
+fn hold_in_background(text: &str) -> Result<()> {
+    let exe = env::current_exe()?;
+    let mut child = Command::new(exe)
+        .arg("hold-clipboard")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()?;
+    // Passed through stdin so the tokenized URL never shows up in the process list.
+    child
+        .stdin
+        .take()
+        .context("clipboard process has no stdin")?
+        .write_all(text.as_bytes())?;
+    let mut line = String::new();
+    BufReader::new(
+        child
+            .stdout
+            .take()
+            .context("clipboard process has no stdout")?,
+    )
+    .read_line(&mut line)?;
+    if line.trim_end() != "ready ok" {
+        let _ = child.wait();
+        bail!("clipboard is unavailable");
+    }
+    Ok(())
+}
+
+/// Takes clipboard ownership and serves the text until another program replaces it.
+pub fn hold_clipboard() -> Result<()> {
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)?;
+    let mut clipboard = match arboard::Clipboard::new() {
+        Ok(clipboard) => clipboard,
+        Err(err) => {
+            let err = anyhow::Error::from(err);
+            report_failure(&err);
+            return Err(err);
+        }
+    };
+    report_ready("ok");
+    #[cfg(target_os = "linux")]
+    {
+        use arboard::SetExtLinux;
+        clipboard.set().wait().text(text)?;
+    }
+    #[cfg(not(target_os = "linux"))]
+    clipboard.set_text(text)?;
+    Ok(())
+}
+
 /// Built UI location: `HERDR_PLUGIN_ROOT/web/dist`, or relative to the working directory, which
 /// Herdr sets to the plugin root for runtime commands.
 pub fn dist_dir() -> Result<PathBuf> {

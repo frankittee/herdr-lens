@@ -6,25 +6,19 @@ description = "Open the current agent conversation in a local web view"
 platforms = ["macos", "linux"]
 
 [[build]]
-command = ["mise", "x", "--", "mbx", "build", "--release"]
-
-[[build]]
-command = ["mise", "x", "--", "bun", "install", "--cwd", "web", "--frozen-lockfile"]
-
-[[build]]
-command = ["mise", "x", "--", "bun", "run", "--cwd", "web", "build"]
+command = ["sh", "scripts/install.sh"]
 
 [[startup]]
 command = ["target/release/herdr-lens", "startup"]
 
 [[actions]]
 id = "open"
-title = "Open agent conversation in browser"
+title = "Open link"
 contexts = ["pane"]
 command = ["target/release/herdr-lens", "open"]
 
 [[actions]]
-id = "link"
-title = "Show agent conversation link for SSH forwarding"
+id = "copy"
+title = "Copy link"
 contexts = ["pane"]
-command = ["target/release/herdr-lens", "link"]
+command = ["target/release/herdr-lens", "copy"]
