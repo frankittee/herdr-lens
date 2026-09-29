@@ -7,6 +7,7 @@ mod load;
 mod parser;
 mod server;
 mod session;
+mod shared;
 mod terminal;
 
 use std::process::ExitCode;
@@ -29,35 +30,50 @@ struct HerdrLens {
 
 #[derive(Subcommands)]
 enum Command {
+    Startup(Startup),
     Open(Open),
+    Link(Link),
     Dump(Dump),
     Serve(Serve),
 }
+
+/// Start the shared viewer when the Herdr server starts
+#[derive(Args)]
+struct Startup {}
 
 /// Plugin action: open the invoking pane's conversation in the browser
 #[derive(Args)]
 struct Open {}
 
+/// Plugin action: show a viewer URL for manual SSH forwarding
+#[derive(Args)]
+struct Link {}
+
 /// Print the parsed conversation as JSON for debugging
 #[derive(Args)]
 struct Dump {}
 
-/// Serve the viewer for one pane on loopback; started by `open`
+/// Serve one pane or the shared startup viewer on loopback
 #[derive(Args)]
 #[usage(hide)]
 struct Serve {
     /// Pane whose conversation is served
     #[usage(long)]
-    pane: String,
+    pane: Option<String>,
+    /// Serve pane URLs from the startup viewer
+    #[usage(long)]
+    shared: bool,
 }
 
 fn main() -> ExitCode {
     let cli = HerdrLens::parse();
     let herdr = Herdr::from_env();
     let (result, notify_on_error) = match cli.command {
+        Command::Startup(_) => (launch::start_shared(), false),
         Command::Open(_) => (open(&herdr), true),
+        Command::Link(_) => (link(&herdr), true),
         Command::Dump(_) => (dump(&herdr), false),
-        Command::Serve(args) => (serve(&herdr, &args.pane), false),
+        Command::Serve(args) => (serve(&herdr, args.pane.as_deref(), args.shared), false),
     };
     let Err(err) = result else {
         return ExitCode::SUCCESS;
@@ -72,18 +88,57 @@ fn main() -> ExitCode {
 
 /// Reads the conversation once so problems surface as a Herdr toast, then hands off to the server.
 fn open(herdr: &Herdr) -> Result<()> {
-    let conversation = load_invoking_conversation(herdr)?;
-    let url = launch::start_server(&conversation.pane_id)?;
+    let pin = invoking_pin(herdr)?;
+    let address = shared::read()?;
+    let url = server::shared_url(address.port, &address.token, &pin)?;
     launch::open_browser(&url)
 }
 
-fn serve(herdr: &Herdr, pane_id: &str) -> Result<()> {
-    let viewer = bind_viewer(herdr, pane_id);
-    match &viewer {
-        Ok(viewer) => launch::report_ready(&viewer.url()),
-        Err(err) => launch::report_failure(err),
+/// Starts the remote viewer and delivers its URL through the Herdr client notification.
+fn link(herdr: &Herdr) -> Result<()> {
+    let pin = invoking_pin(herdr)?;
+    let address = shared::read()?;
+    let url = server::shared_url(address.port, &address.token, &pin)?;
+    herdr.show_notification("Herdr Lens: viewer link", &url)
+}
+
+fn serve(herdr: &Herdr, pane_id: Option<&str>, shared: bool) -> Result<()> {
+    let viewer = if shared && pane_id.is_none() {
+        Viewer::bind_shared(launch::dist_dir()?)
+    } else if shared {
+        anyhow::bail!("serve accepts either --pane or --shared");
+    } else {
+        bind_viewer(herdr, pane_id.context("serve requires --pane or --shared")?)
+    };
+    let viewer = match viewer {
+        Ok(viewer) => viewer,
+        Err(err) => {
+            launch::report_failure(&err);
+            return Err(err);
+        }
+    };
+    if shared {
+        let (port, token) = viewer.address();
+        if let Err(err) = shared::publish(port, token) {
+            launch::report_failure(&err);
+            return Err(err);
+        }
+        launch::report_ready("ok");
+    } else {
+        launch::report_ready(&viewer.url());
     }
-    viewer?.run(herdr)
+    viewer.run(herdr)
+}
+
+fn invoking_pin(herdr: &Herdr) -> Result<Pin> {
+    let context = PluginContext::from_env()?;
+    let target = context::resolve(herdr, &context)?;
+    load::conversation(herdr, target.clone())?;
+    Ok(Pin {
+        pane_id: target.pane.pane_id,
+        terminal_id: target.pane.terminal_id,
+        agent: target.agent,
+    })
 }
 
 fn bind_viewer(herdr: &Herdr, pane_id: &str) -> Result<Viewer> {

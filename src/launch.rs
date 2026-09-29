@@ -1,6 +1,6 @@
-//! Starts the viewer server in the background and opens it in the browser.
+//! Starts the viewer server in the background and opens a URL in the browser.
 //!
-//! Plugin actions should return promptly, so `open` re-executes this binary as `serve` in its own
+//! Startup hooks should return promptly, so `startup` re-executes this binary as `serve` in its own
 //! process group and waits only for the first stdout line: `ready <url>` or `error <message>`.
 
 use std::env;
@@ -14,10 +14,18 @@ use anyhow::{bail, Context, Result};
 
 const LOG_FILE: &str = "server.log";
 
-pub fn start_server(pane_id: &str) -> Result<String> {
+pub fn start_shared() -> Result<()> {
+    let ready = start(&["serve", "--shared"])?;
+    if ready != "ok" {
+        bail!("viewer startup returned an unexpected response");
+    }
+    Ok(())
+}
+
+fn start(args: &[&str]) -> Result<String> {
     let exe = env::current_exe().context("failed to locate the herdr-lens binary")?;
     let mut child = Command::new(exe)
-        .args(["serve", "--pane", pane_id])
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(log_target())

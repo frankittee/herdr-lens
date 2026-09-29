@@ -134,7 +134,13 @@ impl Herdr {
 
     /// Shows a Herdr toast. Best effort: failures are ignored because this is only used for reporting.
     pub fn notify(&self, title: &str, body: &str) {
-        let _ = self.run(&["notification", "show", title, "--body", body]);
+        let _ = self.show_notification(title, body);
+    }
+
+    /// Delivers a notification when it is the only way to return a result to the user.
+    pub fn show_notification(&self, title: &str, body: &str) -> Result<()> {
+        self.run_ok(&["notification", "show", title, "--body", body])?;
+        Ok(())
     }
 
     fn json<T: DeserializeOwned>(&self, args: &[&str]) -> Result<T> {

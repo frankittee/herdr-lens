@@ -77,7 +77,7 @@ async function getJson<T>(path: string, mock: (() => Promise<T>) | null): Promis
     return (await response.json()) as T;
   } catch (error) {
     if (mock) return mock();
-    // fetch rejects with a TypeError when nothing is listening, e.g. after the idle shutdown.
+    // fetch rejects with a TypeError when the viewer is not running.
     if (error instanceof TypeError) throw new Error("the Herdr Lens server is not running; open the conversation from Herdr again");
     throw error;
   }
@@ -104,8 +104,7 @@ export const loadConversation = (paneId?: string, terminalId?: string, agent?: s
 export type Live<T> = { data: T | null; error: string | null };
 
 /*
- * Polls `load` and keeps the last good value on transient errors. Hidden tabs poll slowly
- * instead of stopping, because the server shuts down after a few minutes without requests.
+ * Polls `load` and keeps the last good value on transient errors. Hidden tabs poll slowly.
  */
 export function useLive<T>(load: () => Promise<T>, key = "", enabled = true): Live<T> {
   const [state, setState] = useState<Live<T> & { key: string }>({ data: null, error: null, key });

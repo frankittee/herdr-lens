@@ -14,8 +14,17 @@ command = ["mise", "x", "--", "bun", "install", "--cwd", "web", "--frozen-lockfi
 [[build]]
 command = ["mise", "x", "--", "bun", "run", "--cwd", "web", "build"]
 
+[[startup]]
+command = ["target/release/herdr-lens", "startup"]
+
 [[actions]]
 id = "open"
 title = "Open agent conversation in browser"
 contexts = ["pane"]
 command = ["target/release/herdr-lens", "open"]
+
+[[actions]]
+id = "link"
+title = "Show agent conversation link for SSH forwarding"
+contexts = ["pane"]
+command = ["target/release/herdr-lens", "link"]

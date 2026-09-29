@@ -1,15 +1,17 @@
 //! Loopback HTTP server for the browser UI and its JSON API.
 //!
 //! Everything lives under a random token path, and requests must name the loopback host, so other
-//! local users' browsers and DNS-rebinding pages cannot read the transcript. The server exits once
-//! no request has arrived for `IDLE_TIMEOUT`; an open tab keeps it alive by polling.
+//! local users' browsers and DNS-rebinding pages cannot read the transcript. Standalone pane
+//! viewers exit after `IDLE_TIMEOUT`; the shared startup viewer runs while Herdr's socket exists.
 
 use std::fs::{self, File};
 use std::io::{Cursor, Read};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tiny_http::{Header, Method, Request, Response, Server};
 
@@ -18,11 +20,12 @@ use crate::{agents, context, load};
 
 /// Longer than the slowest background-tab polling browsers allow (about once a minute).
 const IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const SHARED_CHECK_INTERVAL: Duration = Duration::from_secs(10);
 const TOKEN_BYTES: usize = 16;
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 /// A selected agent. Pane ids can be reused, so terminal and agent identity are checked too.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pin {
     pub pane_id: String,
     pub terminal_id: Option<String>,
@@ -34,7 +37,7 @@ pub struct Viewer {
     port: u16,
     token: String,
     dist: PathBuf,
-    pin: Pin,
+    pin: Option<Pin>,
     last_error: Option<String>,
 }
 
@@ -64,9 +67,32 @@ impl Viewer {
             port,
             token: random_token()?,
             dist,
-            pin,
+            pin: Some(pin),
             last_error: None,
         })
+    }
+
+    pub fn bind_shared(dist: PathBuf) -> Result<Self> {
+        ensure_built(&dist)?;
+        let server = Server::http("127.0.0.1:0")
+            .map_err(|err| anyhow!("failed to bind the viewer server on 127.0.0.1: {err}"))?;
+        let port = server
+            .server_addr()
+            .to_ip()
+            .context("viewer server has no TCP address")?
+            .port();
+        Ok(Self {
+            server,
+            port,
+            token: random_token()?,
+            dist,
+            pin: None,
+            last_error: None,
+        })
+    }
+
+    pub fn address(&self) -> (u16, &str) {
+        (self.port, &self.token)
     }
 
     pub fn url(&self) -> String {
@@ -74,15 +100,37 @@ impl Viewer {
             "http://127.0.0.1:{}/{}/{}/",
             self.port,
             self.token,
-            pane_slug(&self.pin.pane_id)
+            pane_slug(&self.pin.as_ref().expect("pinned viewer").pane_id)
         )
     }
 
     pub fn run(mut self, herdr: &Herdr) -> Result<()> {
-        while let Some(request) = self.server.recv_timeout(IDLE_TIMEOUT)? {
-            self.handle(herdr, request);
+        let socket = std::env::var_os("HERDR_SOCKET_PATH")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from);
+        let socket_identity = socket
+            .as_ref()
+            .and_then(|path| fs::metadata(path).ok())
+            .map(|metadata| (metadata.dev(), metadata.ino()));
+        loop {
+            let timeout = if self.pin.is_some() {
+                IDLE_TIMEOUT
+            } else {
+                SHARED_CHECK_INTERVAL
+            };
+            match self.server.recv_timeout(timeout)? {
+                Some(request) => self.handle(herdr, request),
+                None if self.pin.is_some() => return Ok(()),
+                None => {
+                    if let (Some(path), Some(identity)) = (&socket, socket_identity) {
+                        let current = fs::metadata(path).ok().map(|meta| (meta.dev(), meta.ino()));
+                        if current != Some(identity) {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
         }
-        Ok(())
     }
 
     fn handle(&mut self, herdr: &Herdr, request: Request) {
@@ -92,19 +140,30 @@ impl Viewer {
             text(403, "forbidden")
         } else {
             let route = route(request.url(), &self.token);
-            self.reply(herdr, route)
+            self.reply(herdr, route, request.url())
         };
         // A closed tab or a reload mid-response is expected; there is nobody to report it to.
         let _ = request.respond(reply);
     }
 
-    fn reply(&mut self, herdr: &Herdr, route: Route) -> Reply {
+    fn reply(&mut self, herdr: &Herdr, route: Route, url: &str) -> Reply {
         match route {
-            Route::AddSlash => redirect(&format!("/{}/{}/", self.token, pane_slug(&self.pin.pane_id))),
+            Route::AddSlash => {
+                let path = url.split(['?', '#']).next().unwrap_or("");
+                redirect(&format!("{path}/"))
+            }
             Route::File(path) => self.file(&path),
             Route::Agents => self.api("api/agents", agents::list(herdr)),
             Route::Conversation(selected) => {
-                let conversation = self.conversation(herdr, selected.as_ref());
+                let pin = self
+                    .pin
+                    .as_ref()
+                    .cloned()
+                    .or_else(|| shared_pin(url, &self.token));
+                let conversation = pin
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("viewer URL has no pane identity"))
+                    .and_then(|pin| self.conversation(herdr, pin, selected.as_ref()));
                 self.api("api/conversation", conversation)
             }
             Route::NotFound => text(404, "not found"),
@@ -114,9 +173,10 @@ impl Viewer {
     fn conversation(
         &self,
         herdr: &Herdr,
+        default: &Pin,
         selected: Option<&Pin>,
     ) -> Result<crate::conversation::Conversation> {
-        let pin = selected.unwrap_or(&self.pin);
+        let pin = selected.unwrap_or(default);
         if selected.is_some() && !selected_is_live(&herdr.agents()?, pin) {
             bail!("selected agent is no longer available in Herdr");
         }
@@ -227,6 +287,43 @@ fn valid_pane_slug(slug: &str) -> bool {
         && pane[1..].bytes().all(|c| c.is_ascii_alphanumeric())
 }
 
+fn shared_pin(url: &str, token: &str) -> Option<Pin> {
+    let path = url.split(['?', '#']).next()?;
+    let rest = path.strip_prefix(&format!("/{token}/"))?;
+    let mut parts = rest.split('/');
+    let pane_id = parts.next()?;
+    let terminal_id = parts.next()?;
+    let agent = parts.next()?;
+    if !pane_id.contains(':')
+        || !valid_pane_slug(&pane_slug(pane_id))
+        || ![pane_id, terminal_id, agent].iter().all(|id| safe_id(id))
+    {
+        return None;
+    }
+    Some(Pin {
+        pane_id: pane_id.to_owned(),
+        terminal_id: Some(terminal_id.to_owned()),
+        agent: agent.to_owned(),
+    })
+}
+
+pub fn shared_url(port: u16, token: &str, pin: &Pin) -> Result<String> {
+    let terminal = pin
+        .terminal_id
+        .as_deref()
+        .context("pane has no terminal identity")?;
+    if ![pin.pane_id.as_str(), terminal, pin.agent.as_str()]
+        .iter()
+        .all(|id| safe_id(id))
+    {
+        bail!("pane identity contains unsupported URL characters");
+    }
+    Ok(format!(
+        "http://127.0.0.1:{port}/{token}/{}/{terminal}/{}/",
+        pin.pane_id, pin.agent
+    ))
+}
+
 /// Maps a request URL to a route. Only plain relative file paths under `dist` are served.
 fn route(url: &str, token: &str) -> Route {
     let path = url.split(['?', '#']).next().unwrap_or("");
@@ -239,8 +336,23 @@ fn route(url: &str, token: &str) -> Route {
     let Some(rest) = rest.strip_prefix('/') else {
         return Route::NotFound;
     };
+    let rest = if let Some(pin) = shared_pin(url, token) {
+        let prefix = format!(
+            "{}/{}/{}/",
+            pin.pane_id,
+            pin.terminal_id.unwrap(),
+            pin.agent
+        );
+        rest.strip_prefix(&prefix).unwrap_or(rest)
+    } else {
+        rest
+    };
     let rest = if let Some((slug, tail)) = rest.split_once('/') {
-        if valid_pane_slug(slug) { tail } else { rest }
+        if valid_pane_slug(slug) {
+            tail
+        } else {
+            rest
+        }
     } else if valid_pane_slug(rest) {
         return Route::AddSlash;
     } else {
@@ -299,6 +411,8 @@ fn content_type(path: &Path) -> &'static str {
         Some("png") => "image/png",
         Some("ico") => "image/x-icon",
         Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
+        Some("ttf") => "font/ttf",
         _ => "application/octet-stream",
     }
 }
@@ -339,8 +453,14 @@ mod tests {
     fn routes_only_under_the_token() {
         assert_eq!(route("/abc123", TOKEN), Route::AddSlash);
         assert_eq!(route("/abc123/w1-p2", TOKEN), Route::AddSlash);
-        assert_eq!(route("/abc123/w1-p2/", TOKEN), Route::File("index.html".into()));
-        assert_eq!(route("/abc123/wM-p1/", TOKEN), Route::File("index.html".into()));
+        assert_eq!(
+            route("/abc123/w1-p2/", TOKEN),
+            Route::File("index.html".into())
+        );
+        assert_eq!(
+            route("/abc123/wM-p1/", TOKEN),
+            Route::File("index.html".into())
+        );
         assert_eq!(route("/abc123/w1-p2/api/agents", TOKEN), Route::Agents);
         assert_eq!(
             route("/abc123/w1-p2/api/conversation", TOKEN),
@@ -383,6 +503,32 @@ mod tests {
         assert_eq!(route("/", TOKEN), Route::NotFound);
         assert_eq!(route("/api/agents", TOKEN), Route::NotFound);
         assert_eq!(route("/abc1234/", TOKEN), Route::NotFound);
+    }
+
+    #[test]
+    fn shared_urls_keep_the_invoking_pane_in_the_base_path() {
+        let pin = Pin {
+            pane_id: "w1:p2".into(),
+            terminal_id: Some("term_2".into()),
+            agent: "codex".into(),
+        };
+        let url = shared_url(4000, TOKEN, &pin).unwrap();
+        assert_eq!(url, "http://127.0.0.1:4000/abc123/w1:p2/term_2/codex/");
+        let path = "/abc123/w1:p2/term_2/codex/api/conversation";
+        assert_eq!(shared_pin(path, TOKEN), Some(pin));
+        assert_eq!(route(path, TOKEN), Route::Conversation(None));
+        assert_eq!(
+            route("/abc123/w1:p2/term_2/codex/assets/app.js", TOKEN),
+            Route::File("assets/app.js".into())
+        );
+        assert_eq!(
+            route("/abc123/w1:p2/term_2/codex/w1-p3/api/agents", TOKEN),
+            Route::Agents
+        );
+        assert_eq!(
+            shared_pin("/abc123/api/conversation/w1:p2/term_2/codex", TOKEN),
+            None
+        );
     }
 
     #[test]
