@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/frankittee/herdr-lens/compare/v0.1.0...v0.1.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* copy link through OSC 52 so it works over SSH ([b2195fd](https://github.com/frankittee/herdr-lens/commit/b2195fdb0bdc275adf6322033dca04beeeac2416))
+
 ## [0.1.0](https://github.com/frankittee/herdr-lens/compare/v0.1.0...v0.1.0) (2026-09-29)
 
 
