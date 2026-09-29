@@ -27,6 +27,8 @@ export type AgentSession = {
   value: string;
 };
 
+export type Source = "session" | "terminal";
+
 export type Conversation = {
   agent: string;
   pane_id: string;
@@ -36,7 +38,9 @@ export type Conversation = {
   status: AgentStatus | string;
   session: AgentSession | null;
   title: string | null;
-  source: "session" | "terminal";
+  source: Source;
+  /* Sources the viewer can switch between; `session` only when Herdr reports a readable session. */
+  sources?: Source[];
   messages: Message[];
 };
 
@@ -87,16 +91,18 @@ async function getJson<T>(path: string, mock: (() => Promise<T>) | null): Promis
 const mockAgents = import.meta.env.DEV ? async () => (await import("./mock")).MOCK_AGENTS : null;
 export const loadAgents = () => getJson<AgentList>("./api/agents", mockAgents);
 
-export const loadConversation = (paneId?: string, terminalId?: string, agent?: string) => {
-  const path = paneId && terminalId && agent
+/* `terminal` forces scrollback; otherwise the backend prefers the session log when Herdr reports one. */
+export const loadConversation = (paneId?: string, terminalId?: string, agent?: string, source?: Source) => {
+  const base = paneId && terminalId && agent
     ? `./api/conversation/${paneId}/${terminalId}/${agent}`
     : "./api/conversation";
+  const path = source === "terminal" ? `${base}?source=terminal` : base;
   const mock = import.meta.env.DEV ? async () => {
     const { MOCK_AGENTS, MOCK_CONVERSATION } = await import("./mock");
     const selected = MOCK_AGENTS.agents.find((item) => item.pane_id === paneId && item.terminal_id === terminalId);
     return selected
-      ? { ...MOCK_CONVERSATION, agent: selected.agent, pane_id: selected.pane_id, workspace_id: selected.workspace_id, tab_id: selected.tab_id, cwd: selected.cwd, status: selected.agent_status, title: selected.title }
-      : MOCK_CONVERSATION;
+      ? { ...MOCK_CONVERSATION, source: source ?? "session", agent: selected.agent, pane_id: selected.pane_id, workspace_id: selected.workspace_id, tab_id: selected.tab_id, cwd: selected.cwd, status: selected.agent_status, title: selected.title }
+      : { ...MOCK_CONVERSATION, source: source ?? "session" };
   } : null;
   return getJson<Conversation>(path, mock);
 };

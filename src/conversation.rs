@@ -19,6 +19,8 @@ pub struct Conversation {
     /// Session title recorded by the agent, when the source has one.
     pub title: Option<String>,
     pub source: Source,
+    /// Sources the viewer can switch between; `session` only when Herdr reports a readable session.
+    pub sources: Vec<Source>,
     pub messages: Vec<Message>,
 }
 

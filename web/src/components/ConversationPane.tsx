@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Conversation, Message } from "../api";
+import type { AgentSession, Conversation, Message, Source } from "../api";
 import { ChevronIcon } from "../ui/icons";
 import { LoadingLine } from "../ui/loading";
 import { Pill, StatusPill } from "../ui/status";
@@ -68,7 +68,48 @@ function MessageBlock({ message }: { message: Message }) {
   }
 }
 
-function Header({ conversation }: { conversation: Conversation }) {
+/* Session references are ids or file paths; the file name is the recognizable part of a path. */
+function sessionLabel(session: AgentSession): string {
+  const name = session.value.split("/").at(-1) ?? session.value;
+  return name.length > 12 ? `${name.slice(0, 8)}…` : name;
+}
+
+function SourceSwitch({ conversation, onSource }: { conversation: Conversation; onSource: (source: Source) => void }) {
+  // A viewer started before `sources` existed omits it; only its current source is known then.
+  const hasSession = (conversation.sources ?? [conversation.source]).includes("session");
+  const option = (source: Source, label: string, title: string, disabled = false) => {
+    const active = conversation.source === source;
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        title={title}
+        aria-pressed={active}
+        onClick={() => onSource(source)}
+        className={`h-5.5 rounded-full px-2 text-[11.5px] font-medium transition-colors ${
+          active ? "bg-surface text-ink shadow-card" : "text-ink-3 enabled:hover:text-ink"
+        } disabled:cursor-not-allowed disabled:opacity-50`}
+      >
+        {label}
+      </button>
+    );
+  };
+  return (
+    <div role="group" aria-label="Conversation source" className="ml-auto flex shrink-0 items-center gap-0.5 rounded-full bg-field p-0.5">
+      {option(
+        "session",
+        conversation.session && hasSession ? `Session ${sessionLabel(conversation.session)}` : "Session",
+        hasSession && conversation.session
+          ? `Complete history from session ${conversation.session.value}`
+          : "Herdr has not reported a session for this pane",
+        !hasSession,
+      )}
+      {option("terminal", "Terminal", "Terminal scrollback, may be incomplete")}
+    </div>
+  );
+}
+
+function Header({ conversation, onSource }: { conversation: Conversation; onSource: (source: Source) => void }) {
   return (
     <header className="flex shrink-0 flex-col gap-1.5 border-b border-line bg-page/80 px-4 py-3 backdrop-blur @2xl:px-6">
       <div className="flex min-w-0 items-center gap-2">
@@ -76,6 +117,7 @@ function Header({ conversation }: { conversation: Conversation }) {
           {conversation.title || "Untitled session"}
         </h1>
         <StatusPill status={conversation.status} />
+        <SourceSwitch conversation={conversation} onSource={onSource} />
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-2">
         <Pill tone="muted">{conversation.agent}</Pill>
@@ -92,7 +134,15 @@ function Header({ conversation }: { conversation: Conversation }) {
   );
 }
 
-export function ConversationPane({ conversation, error }: { conversation: Conversation | null; error: string | null }) {
+export function ConversationPane({
+  conversation,
+  error,
+  onSource,
+}: {
+  conversation: Conversation | null;
+  error: string | null;
+  onSource: (source: Source) => void;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const [showJump, setShowJump] = useState(false);
@@ -133,7 +183,7 @@ export function ConversationPane({ conversation, error }: { conversation: Conver
 
   return (
     <main className="@container relative flex min-w-0 flex-1 flex-col bg-page">
-      <Header conversation={conversation} />
+      <Header conversation={conversation} onSource={onSource} />
       {error && (
         <div className="shrink-0 border-b border-line bg-red-tint px-4 py-1.5 text-[12px] text-red @2xl:px-6">
           Could not refresh: {error}. Showing the last loaded transcript.

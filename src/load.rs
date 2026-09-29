@@ -7,31 +7,73 @@ use crate::conversation::{Conversation, Source, Transcript};
 use crate::herdr::Herdr;
 use crate::{parser, session};
 
-pub fn conversation(herdr: &Herdr, target: Target) -> Result<Conversation> {
-    let transcript = read_transcript(herdr, &target)?;
-    Ok(build_conversation(target, transcript))
+/// Which source the viewer asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Choice {
+    /// The session log when Herdr reports one, otherwise terminal scrollback.
+    #[default]
+    Auto,
+    Terminal,
 }
 
-/// Agents with a session reader get their complete history from the session Herdr reports for
-/// the pane. Other agents fall back to terminal scrollback, marked as `source: terminal`.
-fn read_transcript(herdr: &Herdr, target: &Target) -> Result<Transcript> {
-    let pane = &target.pane;
-    match target.agent.as_str() {
-        "droid" => session::droid::load(&pane.pane_id, pane.agent_session.as_ref()),
-        "codex" => session::codex::load(&pane.pane_id, pane.agent_session.as_ref()),
-        agent => {
-            let ansi = herdr.read_agent_ansi(&pane.pane_id)?;
-            Ok(Transcript {
-                source: Source::Terminal,
-                title: None,
-                messages: parser::parse_terminal(agent, &ansi),
-            })
+impl Choice {
+    /// Reads `source=terminal` from a request query string; anything else means `Auto`.
+    pub fn from_query(url: &str) -> Self {
+        let query = url.split_once('?').map_or("", |(_, query)| query);
+        let query = query.split('#').next().unwrap_or("");
+        if query.split('&').any(|pair| pair == "source=terminal") {
+            Self::Terminal
+        } else {
+            Self::Auto
         }
     }
 }
 
-fn build_conversation(target: Target, transcript: Transcript) -> Conversation {
+pub fn conversation(herdr: &Herdr, target: Target, choice: Choice) -> Result<Conversation> {
+    let session_available =
+        has_session_reader(&target.agent) && target.pane.agent_session.is_some();
+    let transcript = if session_available && choice == Choice::Auto {
+        read_session(&target)?
+    } else {
+        read_terminal(herdr, &target)?
+    };
+    Ok(build_conversation(target, transcript, session_available))
+}
+
+fn has_session_reader(agent: &str) -> bool {
+    matches!(agent, "droid" | "codex")
+}
+
+/// Reads only the session Herdr reports for the pane, never another one.
+fn read_session(target: &Target) -> Result<Transcript> {
+    let pane = &target.pane;
+    let session = pane.agent_session.as_ref();
+    match target.agent.as_str() {
+        "droid" => session::droid::load(&pane.pane_id, session),
+        "codex" => session::codex::load(&pane.pane_id, session),
+        agent => unreachable!("no session reader for {agent}"),
+    }
+}
+
+fn read_terminal(herdr: &Herdr, target: &Target) -> Result<Transcript> {
+    let ansi = herdr.read_agent_ansi(&target.pane.pane_id)?;
+    Ok(Transcript {
+        source: Source::Terminal,
+        title: None,
+        messages: parser::parse_terminal(&target.agent, &ansi),
+    })
+}
+
+fn build_conversation(
+    target: Target,
+    transcript: Transcript,
+    session_available: bool,
+) -> Conversation {
     let pane = target.pane;
+    let mut sources = vec![Source::Terminal];
+    if session_available {
+        sources.insert(0, Source::Session);
+    }
     Conversation {
         agent: target.agent,
         pane_id: pane.pane_id,
@@ -42,6 +84,33 @@ fn build_conversation(target: Target, transcript: Transcript) -> Conversation {
         session: pane.agent_session,
         title: transcript.title,
         source: transcript.source,
+        sources,
         messages: transcript.messages,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_terminal_choice_from_query() {
+        assert_eq!(Choice::from_query("/t/api/conversation"), Choice::Auto);
+        assert_eq!(
+            Choice::from_query("/t/api/conversation?source=terminal"),
+            Choice::Terminal
+        );
+        assert_eq!(
+            Choice::from_query("/t/api/conversation?x=1&source=terminal"),
+            Choice::Terminal
+        );
+        assert_eq!(
+            Choice::from_query("/t/api/conversation?source=session"),
+            Choice::Auto
+        );
+        assert_eq!(
+            Choice::from_query("/t/api/conversation#source=terminal"),
+            Choice::Auto
+        );
     }
 }

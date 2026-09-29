@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { loadAgents, loadConversation, useLive, type AgentSummary } from "./api";
+import { loadAgents, loadConversation, useLive, type AgentSummary, type Source } from "./api";
 import { AgentSidebar } from "./components/AgentSidebar";
 import { ConversationPane } from "./components/ConversationPane";
 
@@ -41,10 +41,12 @@ export function App() {
   const [collapsed, setCollapsed] = useState(narrow);
   const [selected, setSelected] = useState<AgentSummary | null>(null);
   const supported = selected?.supported ?? true;
-  const selectedKey = selected ? `${selected.pane_id}/${selected.terminal_id}/${selected.agent}` : "invoking-pane";
+  const [source, setSource] = useState<Source>("session");
+  const agentKey = selected ? `${selected.pane_id}/${selected.terminal_id}/${selected.agent}` : "invoking-pane";
+  const selectedKey = `${agentKey}/${source}`;
   const load = useCallback(
-    () => loadConversation(selected?.pane_id, selected?.terminal_id ?? undefined, selected?.agent),
-    [selected?.pane_id, selected?.terminal_id, selected?.agent],
+    () => loadConversation(selected?.pane_id, selected?.terminal_id ?? undefined, selected?.agent, source),
+    [selected?.pane_id, selected?.terminal_id, selected?.agent, source],
   );
   const conversation = useLive(load, selectedKey, supported);
 
@@ -82,7 +84,11 @@ export function App() {
         onToggle={toggle}
         onSelect={select}
       />
-      <ConversationPane conversation={conversation.data} error={supported ? conversation.error : "This harness is not supported yet"} />
+      <ConversationPane
+        conversation={conversation.data}
+        error={supported ? conversation.error : "This harness is not supported yet"}
+        onSource={setSource}
+      />
     </div>
   );
 }

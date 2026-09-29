@@ -70,6 +70,7 @@ export const MOCK_CONVERSATION: Conversation = {
   session: { agent: "droid", kind: "id", source: "herdr:droid", value: "00000000-0000-0000-0000-000000000000" },
   title: "Build the conversation viewer",
   source: "session",
+  sources: ["session", "terminal"],
   messages: [
     {
       role: "user",

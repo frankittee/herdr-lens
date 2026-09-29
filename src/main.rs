@@ -166,7 +166,7 @@ fn serve(herdr: &Herdr, pane_id: Option<&str>, shared: bool) -> Result<()> {
 fn invoking_pin(herdr: &Herdr) -> Result<Pin> {
     let context = PluginContext::from_env()?;
     let target = context::resolve(herdr, &context)?;
-    load::conversation(herdr, target.clone())?;
+    load::conversation(herdr, target.clone(), load::Choice::Auto)?;
     Ok(Pin {
         pane_id: target.pane.pane_id,
         terminal_id: target.pane.terminal_id,
@@ -198,5 +198,5 @@ fn dump(herdr: &Herdr) -> Result<()> {
 fn load_invoking_conversation(herdr: &Herdr) -> Result<Conversation> {
     let context = PluginContext::from_env()?;
     let target = context::resolve(herdr, &context)?;
-    load::conversation(herdr, target)
+    load::conversation(herdr, target, load::Choice::Auto)
 }
