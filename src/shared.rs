@@ -17,6 +17,37 @@ const STATE_FILE: &str = "viewer.json";
 pub struct Address {
     pub port: u16,
     pub token: String,
+    /// Process id and binary identity of the viewer, so `open` can replace one left running
+    /// by an older build. Records written before these fields existed read as 0 and "".
+    #[serde(default)]
+    pid: u32,
+    #[serde(default)]
+    build: String,
+}
+
+/// Identifies the running executable by size and modification time; a rebuild or upgrade changes it.
+fn build_id() -> String {
+    let modified = env::current_exe()
+        .and_then(fs::metadata)
+        .and_then(|meta| Ok((meta.len(), meta.modified()?)));
+    match modified {
+        Ok((len, time)) => {
+            let nanos = time
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |since| since.as_nanos());
+            format!("{len}-{nanos}")
+        }
+        Err(_) => String::new(),
+    }
+}
+
+/// Asks a stale viewer to exit; it is replaced right after, so a failure only leaves it idle.
+fn stop(pid: u32) {
+    if pid != 0 {
+        let _ = std::process::Command::new("kill")
+            .arg(pid.to_string())
+            .status();
+    }
 }
 
 fn path() -> Result<PathBuf> {
@@ -38,6 +69,8 @@ pub fn publish(port: u16, token: &str) -> Result<()> {
     let address = Address {
         port,
         token: token.to_owned(),
+        pid: std::process::id(),
+        build: build_id(),
     };
     serde_json::to_writer(&mut file, &address).context("failed to encode viewer state")?;
     file.flush()?;
@@ -54,5 +87,9 @@ pub fn read() -> Result<Address> {
     let socket = SocketAddrV4::new(Ipv4Addr::LOCALHOST, address.port);
     TcpStream::connect_timeout(&socket.into(), Duration::from_millis(300))
         .context("Lens viewer is not running; restart the Herdr server")?;
+    if address.build != build_id() {
+        stop(address.pid);
+        bail!("Lens viewer was started by an older build");
+    }
     Ok(address)
 }
