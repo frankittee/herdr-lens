@@ -1,6 +1,7 @@
 mod agents;
 mod context;
 mod conversation;
+mod copy;
 mod herdr;
 mod launch;
 mod load;
@@ -35,13 +36,13 @@ enum Command {
     Copy(Copy),
     Dump(Dump),
     Serve(Serve),
-    HoldClipboard(HoldClipboard),
+    CopyPane(CopyPane),
 }
 
-/// Keep copied text on the Linux clipboard after the action exits
+/// Popup pane: copy the viewer URL through the terminal and show it
 #[derive(Args)]
 #[usage(hide)]
-struct HoldClipboard {}
+struct CopyPane {}
 
 /// Start the shared viewer when the Herdr server starts
 #[derive(Args)]
@@ -80,7 +81,7 @@ fn main() -> ExitCode {
         Command::Copy(_) => (copy(&herdr), true),
         Command::Dump(_) => (dump(&herdr), false),
         Command::Serve(args) => (serve(&herdr, args.pane.as_deref(), args.shared), false),
-        Command::HoldClipboard(_) => (launch::hold_clipboard(), false),
+        Command::CopyPane(_) => (copy_pane(&herdr), false),
     };
     let Err(err) = result else {
         return ExitCode::SUCCESS;
@@ -99,19 +100,28 @@ fn open(herdr: &Herdr) -> Result<()> {
     launch::open_browser(&url)
 }
 
-/// Delivers the viewer URL through the clipboard (when available) and a Herdr notification.
+/// Validates the invoking pane here so problems surface as a toast, then opens the copy popup.
 fn copy(herdr: &Herdr) -> Result<()> {
-    let url = invoking_url(herdr)?;
-    let title = if launch::copy_to_clipboard(&url) {
-        "Herdr Lens: link copied"
-    } else {
-        "Herdr Lens: viewer link"
-    };
-    herdr.show_notification(title, &url)
+    let pin = invoking_pin(herdr)?;
+    copy::open_popup(herdr, &pin.pane_id)
+}
+
+/// Runs inside the popup, whose terminal output Herdr forwards to the attached client.
+fn copy_pane(herdr: &Herdr) -> Result<()> {
+    let result = copy::target_pane()
+        .and_then(|pane_id| pin_url(pin_for_pane(herdr, &pane_id)?))
+        .and_then(|url| copy::show(&url));
+    if let Err(err) = &result {
+        copy::show_error(err);
+    }
+    result
 }
 
 fn invoking_url(herdr: &Herdr) -> Result<String> {
-    let pin = invoking_pin(herdr)?;
+    pin_url(invoking_pin(herdr)?)
+}
+
+fn pin_url(pin: Pin) -> Result<String> {
     let address = shared_address()?;
     server::shared_url(address.port, &address.token, &pin)
 }
@@ -165,13 +175,16 @@ fn invoking_pin(herdr: &Herdr) -> Result<Pin> {
 }
 
 fn bind_viewer(herdr: &Herdr, pane_id: &str) -> Result<Viewer> {
+    Viewer::bind(launch::dist_dir()?, pin_for_pane(herdr, pane_id)?)
+}
+
+fn pin_for_pane(herdr: &Herdr, pane_id: &str) -> Result<Pin> {
     let target = context::resolve_pane(herdr, pane_id)?;
-    let pin = Pin {
+    Ok(Pin {
         pane_id: target.pane.pane_id,
         terminal_id: target.pane.terminal_id,
         agent: target.agent,
-    };
-    Viewer::bind(launch::dist_dir()?, pin)
+    })
 }
 
 fn dump(herdr: &Herdr) -> Result<()> {

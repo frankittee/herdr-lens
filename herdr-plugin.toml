@@ -1,7 +1,7 @@
 id = "herdr-lens"
 name = "Herdr Lens"
 version = "0.1.0"
-min_herdr_version = "0.7.0"
+min_herdr_version = "0.7.4"
 description = "Open the current agent conversation in a local web view"
 platforms = ["macos", "linux"]
 
@@ -22,3 +22,12 @@ id = "copy"
 title = "Copy link"
 contexts = ["pane"]
 command = ["target/release/herdr-lens", "copy"]
+
+[[panes]]
+id = "copy"
+title = "Copy link"
+platforms = ["macos", "linux"]
+placement = "popup"
+width = "70%"
+height = 12
+command = ["target/release/herdr-lens", "copy-pane"]

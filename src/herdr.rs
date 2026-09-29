@@ -143,6 +143,22 @@ impl Herdr {
         Ok(())
     }
 
+    /// Opens a pane entrypoint declared in the plugin manifest.
+    pub fn open_plugin_pane(&self, plugin: &str, entrypoint: &str, env: &str) -> Result<()> {
+        self.run_ok(&[
+            "plugin",
+            "pane",
+            "open",
+            "--plugin",
+            plugin,
+            "--entrypoint",
+            entrypoint,
+            "--env",
+            env,
+        ])?;
+        Ok(())
+    }
+
     fn json<T: DeserializeOwned>(&self, args: &[&str]) -> Result<T> {
         let output = self.run_ok(args)?;
         parse_envelope(&output.stdout)

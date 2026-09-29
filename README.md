@@ -50,7 +50,7 @@ Both actions appear in the pane context menu and pin the invoking pane:
 | Action | What it does |
 | --- | --- |
 | **Open link** | Opens the invoking pane's conversation in the default browser. Use this when Herdr runs on this machine. |
-| **Copy link** | Copies the viewer URL to the system clipboard when one is available and shows it as a Herdr notification instead of opening a browser. Use this when attached with `herdr --remote`. |
+| **Copy link** | Opens a small popup that copies the viewer URL to your clipboard through the terminal (OSC 52) and shows it with the SSH forwarding command. Works over `ssh` and `herdr --remote`, because the copy lands on the machine running your terminal. Press Enter to close. |
 
 The viewer opens on the invoking pane. The sidebar switches to another agent only while that agent is still in Herdr's agent list and its pane, terminal, and agent still match.
 
@@ -84,7 +84,7 @@ The viewer binds to `127.0.0.1` on the remote host. Forward the port shown in th
 ssh -N -L 12345:127.0.0.1:12345 workbox
 ```
 
-Then open the notified URL on this machine. If the local port is occupied, choose another local port and replace only the port in the URL. Herdr exposes no remote-client flag or local clipboard API to plugin actions, so pick the Copy link action explicitly for remote sessions.
+Then paste the copied URL on this machine. If the local port is occupied, choose another local port and replace only the port in the URL. Copying needs a terminal that accepts OSC 52 clipboard writes (Ghostty, kitty, WezTerm, iTerm2 with the option enabled; inside tmux set `set-clipboard on`); otherwise copy the URL shown in the popup.
 
 ## Supported agents
 

@@ -14,6 +14,7 @@ Build a Herdr plugin that opens the conversation of the agent in the invoking pa
   - `main.rs`: `open` and `serve --pane <id>` subcommands.
   - `herdr.rs`: thin wrapper over the Herdr CLI (`pane get`, `agent list`, `workspace list`, `agent read`); all Herdr calls go through it.
   - `context.rs`: resolves the invoking pane from `HERDR_PLUGIN_CONTEXT_JSON`, then `HERDR_PANE_ID`, and requires a detected agent. No focused-pane fallback.
+  - `copy.rs`: the `copy` action opens the `copy` popup pane (`copy-pane`), which writes the URL as OSC 52 so Herdr forwards it to the attached client's clipboard, including over SSH.
   - `launch.rs`: `open` re-executes the binary as `serve` in its own process group, waits for the first stdout line (`ready <url>` or `error <message>`), then opens the URL with `open`/`xdg-open`.
 - `server.rs`: serves `web/dist` and the JSON API on `127.0.0.1` under a random token path, rejects non-loopback `Host` headers, validates selected pane, terminal, and agent identities, and exits after 5 minutes without requests.
   - `load.rs`: builds the `Conversation` for the target, preferring a session reader and falling back to terminal scrollback (`source: terminal`).
