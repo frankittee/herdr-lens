@@ -17,7 +17,7 @@ Build a Herdr plugin that opens the conversation of the agent in the invoking pa
   - `copy.rs`: the `copy` action opens the `copy` popup pane (`copy-pane`), which writes the URL as OSC 52 so Herdr forwards it to the attached client's clipboard, including over SSH.
   - `launch.rs`: `open` re-executes the binary as `serve` in its own process group, waits for the first stdout line (`ready <url>` or `error <message>`), then opens the URL with `open`/`xdg-open`.
 - `server.rs`: serves `web/dist` and the JSON API on `127.0.0.1` under a random token path, rejects non-loopback `Host` headers, validates selected pane, terminal, and agent identities, and exits after 5 minutes without requests.
-  - `load.rs`: builds the `Conversation` for the target, preferring a session reader and falling back to terminal scrollback (`source: terminal`).
+  - `load.rs`: builds the `Conversation` for the target. `Choice::Auto` uses the session reader when Herdr reports an `agent_session`, otherwise terminal scrollback (`source: terminal`); a reported session that cannot be read also falls back to scrollback, with the reason in `session_error`; `?source=terminal` forces scrollback. `sources` lists what the UI switch may offer.
   - `conversation.rs`: agent-neutral model (`Conversation`, `Message`, `Role`, `ToolCall`, `Source`) serialized to the UI; keep it in sync with `web/src/api.ts`.
   - `session/<agent>.rs`: readers for an agent's own session log (complete history). `session/droid.rs` reads `~/.factory/sessions/<cwd-slug>/<session-id>.jsonl`, only the id Herdr reports, and checks the log's `session_start` id.
   - `parser/<agent>.rs`: parsers for terminal scrollback, the partial fallback. `parser/mod.rs` falls back to a raw `Terminal` message for unknown agents or unattributable output.
@@ -29,14 +29,14 @@ Build a Herdr plugin that opens the conversation of the agent in the invoking pa
   - `web/src/components/`: `AgentSidebar`, `ConversationPane`, `ActivityRun` (grouped tool calls and reasoning), `Markdown`.
   - `web/src/mock.ts`: synthetic data for `mise x -- bun run dev`; must not reach production builds.
 - `web/src/ui/`: primitives adapted from Beautiful UI (https://www.beautifului.dev, MIT, see `web/src/ui/LICENSE`). Beautiful UI has no package; copy and adapt its component source here instead of adding dependencies.
-- `web/src/api.ts`: the JSON contract the Rust server must serve: `GET api/agents` (`{ agents: AgentSummary[] }`, from `herdr agent list` plus workspace labels), `GET api/conversation` for the invoking pane, and `GET api/conversation/<pane>/<terminal>/<agent>` for a selected sidebar agent. The UI polls both.
+- `web/src/api.ts`: the JSON contract the Rust server must serve: `GET api/agents` (`{ agents: AgentSummary[] }`, from `herdr agent list` plus workspace labels), `GET api/conversation` for the invoking pane, and `GET api/conversation/<pane>/<terminal>/<agent>` for a selected sidebar agent; both accept `?source=terminal`. The UI polls both.
 - `fixtures/<agent>/`: real session logs used by backend parser tests, one directory per code agent (e.g. `fixtures/droid/session.jsonl`). The `*.jsonl` files are git-ignored because they contain local conversation content; provide them locally before running `mise x -- mbx test`.
 
 ## Development rules
 
 - Follow the installed Herdr CLI and the official plugin documentation when changing the manifest or API calls. The plugin API is out of process; use `HERDR_BIN_PATH` for Herdr CLI calls when possible.
 - Resolve the target agent from `HERDR_PLUGIN_CONTEXT_JSON` or the injected pane identifiers. Never silently substitute another focused pane when the target is missing.
-- The backend returns the complete history of the selected pane's conversation. Read it from the agent's session log identified by Herdr's `agent_session` for that pane; never open a different session for the pane. Sidebar selections without a supported session reader display `This harness is not supported yet`.
+- The backend returns the complete history of the selected pane's conversation. Read it from the agent's session log identified by Herdr's `agent_session` for that pane; never open a different session for the pane; without a reported session, fall back to terminal scrollback. Sidebar selections without a supported session reader display `This harness is not supported yet`.
 - Keep the web server on loopback behind the token path. Do not expose conversation content on a public interface. Avoid logging full transcripts or secrets, including the viewer URL; server errors go to `HERDR_PLUGIN_STATE_DIR/server.log`.
 - The default conversation route stays pinned to the invoking pane. Sidebar selection is allowed only for an agent in Herdr's current agent list whose pane, `terminal_id`, and agent identity still match; `api/agents` returns metadata only.
 - Keep durable configuration and runtime state in `HERDR_PLUGIN_CONFIG_DIR` and `HERDR_PLUGIN_STATE_DIR`, not in the plugin checkout.

@@ -11,6 +11,8 @@ pub struct StyledLine {
     pub bg_at_start: bool,
     /// Leading run of bold, non-italic text starting at the first visible glyph.
     pub bold_prefix: String,
+    /// Byte ranges of `text` drawn bold and not italic, in order.
+    pub bold_spans: Vec<(usize, usize)>,
 }
 
 impl StyledLine {
@@ -54,6 +56,13 @@ impl Collector {
         let mut line = std::mem::take(&mut self.line);
         line.text.truncate(line.text.trim_end().len());
         line.bold_prefix.truncate(line.bold_prefix.trim_end().len());
+        let len = line.text.len();
+        line.bold_spans = line
+            .bold_spans
+            .iter()
+            .map(|&(start, end)| (start.min(len), end.min(len)))
+            .filter(|&(start, end)| start < end)
+            .collect();
         self.lines.push(line);
         // Rows are decoded independently so a style left open on one row
         // (e.g. a prompt background) cannot mark the next row as a user prompt.
@@ -80,7 +89,15 @@ impl Perform for Collector {
                 self.in_bold_prefix = false;
             }
         }
+        let start = self.line.text.len();
         self.line.text.push(c);
+        if plain_bold {
+            let end = self.line.text.len();
+            match self.line.bold_spans.last_mut() {
+                Some(span) if span.1 == start => span.1 = end,
+                _ => self.line.bold_spans.push((start, end)),
+            }
+        }
     }
 
     fn execute(&mut self, byte: u8) {
@@ -178,6 +195,12 @@ mod tests {
         assert_eq!(line.indent(), 3);
         let italic = &parse_ansi("   \x1b[1m\x1b[3mnote\x1b[0m")[0];
         assert!(italic.bold_prefix.is_empty());
+    }
+
+    #[test]
+    fn records_bold_spans() {
+        let line = &parse_ansi("   see \x1b[1mCargo.toml\x1b[0m and \x1b[1m\x1b[3mnot\x1b[0m")[0];
+        assert_eq!(line.bold_spans, [(7, 17)]);
     }
 
     #[test]

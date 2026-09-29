@@ -222,6 +222,7 @@ body {
 .math-copy-popover {
   position: fixed;
   z-index: 50;
+  transform: translateX(-50%);
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: var(--surface);

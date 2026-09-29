@@ -16,6 +16,7 @@ use serde_json::json;
 use tiny_http::{Header, Method, Request, Response, Server};
 
 use crate::herdr::{AgentInfo, Herdr};
+use crate::load::Choice;
 use crate::{agents, context, load};
 
 /// Longer than the slowest background-tab polling browsers allow (about once a minute).
@@ -163,7 +164,9 @@ impl Viewer {
                 let conversation = pin
                     .as_ref()
                     .ok_or_else(|| anyhow!("viewer URL has no pane identity"))
-                    .and_then(|pin| self.conversation(herdr, pin, selected.as_ref()));
+                    .and_then(|pin| {
+                        self.conversation(herdr, pin, selected.as_ref(), Choice::from_query(url))
+                    });
                 self.api("api/conversation", conversation)
             }
             Route::NotFound => text(404, "not found"),
@@ -175,6 +178,7 @@ impl Viewer {
         herdr: &Herdr,
         default: &Pin,
         selected: Option<&Pin>,
+        choice: Choice,
     ) -> Result<crate::conversation::Conversation> {
         let pin = selected.unwrap_or(default);
         if selected.is_some() && !selected_is_live(&herdr.agents()?, pin) {
@@ -193,7 +197,7 @@ impl Viewer {
         if selected.is_some() && !agents::supports_conversation(&target.agent) {
             bail!("This harness is not supported yet");
         }
-        load::conversation(herdr, target)
+        load::conversation(herdr, target, choice)
     }
 
     fn api<T: serde::Serialize>(&mut self, name: &str, result: Result<T>) -> Reply {

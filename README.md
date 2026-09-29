@@ -94,6 +94,8 @@ Then paste the copied URL on this machine. If the local port is occupied, choose
 | Droid | `~/.factory/sessions/<cwd-slug>/<session-id>.jsonl`, using only the session id Herdr reports for the pane. |
 | Other | Terminal scrollback only, marked as a terminal source. Selecting one of these from the sidebar shows `This harness is not supported yet`. |
 
+For Codex and Droid, the switch in the top-right corner of the viewer chooses between **Session** (the complete history, labeled with the session id) and **Terminal** (the pane's scrollback, which may be incomplete). When Herdr has not reported a session for the pane, for example after `codex resume` on Codex versions that skip the `SessionStart` hook, the viewer falls back to the terminal and disables **Session**.
+
 Every reader verifies that the log it found belongs to the session Herdr reports for that pane; a mismatch is an error rather than another session's transcript.
 
 ## Configuration and state
