@@ -1,0 +1,183 @@
+/* Synthetic sample data for `vite dev` only; production builds never load this module. */
+import type { AgentList, Conversation } from "./api";
+
+export const MOCK_AGENTS: AgentList = {
+  agents: [
+    {
+      pane_id: "w1:p1",
+      workspace_id: "w1",
+      workspace_label: "herdr-lens",
+      tab_id: "w1:t1",
+      agent: "droid",
+      agent_status: "working",
+      title: "Build the conversation viewer",
+      cwd: "~/Developer/herdr-lens",
+      focused: true,
+    },
+    {
+      pane_id: "w1:p2",
+      workspace_id: "w1",
+      workspace_label: "herdr-lens",
+      tab_id: "w1:t2",
+      agent: "claude",
+      agent_status: "blocked",
+      title: "Review the Rust server patch",
+      cwd: "~/Developer/herdr-lens",
+      focused: false,
+    },
+    {
+      pane_id: "w2:p1",
+      workspace_id: "w2",
+      workspace_label: "notes-app",
+      tab_id: "w2:t1",
+      agent: "codex",
+      agent_status: "done",
+      title: "Fix flaky sync test",
+      cwd: "~/Developer/notes-app",
+      focused: false,
+    },
+    {
+      pane_id: "w2:p2",
+      workspace_id: "w2",
+      workspace_label: "notes-app",
+      tab_id: "w2:t1",
+      agent: "droid",
+      agent_status: "idle",
+      title: null,
+      cwd: "~/Developer/notes-app",
+      focused: false,
+    },
+  ],
+};
+
+const t = (seconds: number) => new Date(Date.UTC(2026, 8, 29, 9, 0, seconds)).toISOString();
+
+export const MOCK_CONVERSATION: Conversation = {
+  agent: "droid",
+  pane_id: "w1:p1",
+  workspace_id: "w1",
+  tab_id: "w1:t1",
+  cwd: "~/Developer/herdr-lens",
+  status: "working",
+  session: { agent: "droid", kind: "id", source: "herdr:droid", value: "00000000-0000-0000-0000-000000000000" },
+  title: "Build the conversation viewer",
+  source: "session",
+  messages: [
+    {
+      role: "user",
+      text: "Add a `/api/conversation` endpoint that returns the parsed transcript as JSON.",
+      timestamp: t(0),
+    },
+    {
+      role: "reasoning",
+      text: "The parser already produces a `Conversation`. I need a tiny HTTP server bound to loopback that serializes it, plus a static file handler for the built UI.",
+      timestamp: t(3),
+    },
+    {
+      role: "tool",
+      title: "Read src/main.rs",
+      text: "fn main() -> ExitCode {\n    let cli = HerdrLens::parse();\n    let herdr = Herdr::from_env();\n    // ...\n}",
+      timestamp: t(4),
+      tool: { name: "Read", input: { file_path: "src/main.rs" }, pending: false, is_error: false },
+    },
+    {
+      role: "tool",
+      title: "Grep fn load_conversation",
+      text: "src/main.rs:62:fn load_conversation(herdr: &Herdr) -> Result<Conversation> {",
+      timestamp: t(5),
+      tool: { name: "Grep", input: { pattern: "fn load_conversation" }, pending: false, is_error: false },
+    },
+    {
+      role: "tool",
+      title: "Edit src/main.rs",
+      text: "The file src/main.rs has been updated successfully.",
+      timestamp: t(8),
+      tool: {
+        name: "Edit",
+        input: {
+          file_path: "src/main.rs",
+          old_str: "fn open(herdr: &Herdr) -> Result<()> {\n    let conversation = load_conversation(herdr)?;",
+          new_str: "fn open(herdr: &Herdr) -> Result<()> {\n    let conversation = load_conversation(herdr)?;\n    let server = server::start(conversation)?;\n    open_browser(server.url())?;",
+        },
+        pending: false,
+        is_error: false,
+      },
+    },
+    {
+      role: "tool",
+      title: "Execute cargo test",
+      text: "error[E0433]: failed to resolve: use of undeclared crate or module `server`\n --> src/main.rs:48:18",
+      timestamp: t(12),
+      tool: { name: "Execute", input: { command: "cargo test" }, pending: false, is_error: true },
+    },
+    {
+      role: "assistant",
+      text: "The build failed because the `server` module does not exist yet. I'll add it next.",
+      timestamp: t(14),
+    },
+    {
+      role: "system",
+      text: "Model switched to a faster variant.",
+      timestamp: t(15),
+    },
+    {
+      role: "tool",
+      title: "Create src/server.rs",
+      text: "The file src/server.rs has been created successfully.",
+      timestamp: t(20),
+      tool: {
+        name: "Create",
+        input: {
+          file_path: "src/server.rs",
+          content: "pub fn start(conversation: Conversation) -> Result<Server> {\n    let listener = TcpListener::bind(\"127.0.0.1:0\")?;\n    Ok(Server { listener, conversation })\n}",
+        },
+        pending: false,
+        is_error: false,
+      },
+    },
+    {
+      role: "tool",
+      title: "Execute cargo test",
+      text: "running 18 tests\ntest result: ok. 18 passed; 0 failed",
+      timestamp: t(31),
+      tool: { name: "Execute", input: { command: "cargo test" }, pending: false, is_error: false },
+    },
+    {
+      role: "assistant",
+      text: [
+        "The endpoint is in place. Summary:",
+        "",
+        "- `GET /api/conversation` returns the transcript of the **invoking pane** only.",
+        "- The server binds to `127.0.0.1` on a random port.",
+        "",
+        "| Route | Response |",
+        "| --- | --- |",
+        "| `/` | built UI from `web/dist` |",
+        "| `/api/conversation` | `Conversation` JSON |",
+        "",
+        "```rust",
+        "let listener = TcpListener::bind(\"127.0.0.1:0\")?;",
+        "println!(\"serving on {}\", listener.local_addr()?);",
+        "```",
+      ].join("\n"),
+      timestamp: t(35),
+    },
+    {
+      role: "user",
+      text: "Now open the browser automatically.",
+      timestamp: t(60),
+    },
+    {
+      role: "reasoning",
+      text: "macOS uses `open`, Linux uses `xdg-open`.",
+      timestamp: t(62),
+    },
+    {
+      role: "tool",
+      title: "Execute cargo build --release",
+      text: "",
+      timestamp: t(64),
+      tool: { name: "Execute", input: { command: "cargo build --release" }, pending: true, is_error: false },
+    },
+  ],
+};

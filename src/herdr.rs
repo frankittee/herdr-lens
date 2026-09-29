@@ -21,6 +21,30 @@ pub struct PaneInfo {
     pub agent_status: String,
     pub agent_session: Option<AgentSession>,
     pub cwd: Option<String>,
+    /// Unique per terminal process, unlike pane ids, which Herdr can reuse.
+    pub terminal_id: Option<String>,
+}
+
+/// Agent fields Herdr Lens needs from `herdr agent list`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentInfo {
+    pub pane_id: String,
+    pub workspace_id: String,
+    pub tab_id: String,
+    pub agent: String,
+    #[serde(default)]
+    pub agent_status: String,
+    pub terminal_title_stripped: Option<String>,
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub focused: bool,
+}
+
+/// Workspace fields Herdr Lens needs from `herdr workspace list`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceInfo {
+    pub workspace_id: String,
+    pub label: Option<String>,
 }
 
 /// Session identity reported by the agent integration. `kind` is `id` or `path`.
@@ -52,6 +76,16 @@ struct PaneResult {
     pane: PaneInfo,
 }
 
+#[derive(Debug, Deserialize)]
+struct AgentListResult {
+    agents: Vec<AgentInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkspaceListResult {
+    workspaces: Vec<WorkspaceInfo>,
+}
+
 pub struct Herdr {
     bin: String,
 }
@@ -68,6 +102,16 @@ impl Herdr {
     pub fn pane(&self, pane_id: &str) -> Result<PaneInfo> {
         let result: PaneResult = self.json(&["pane", "get", pane_id])?;
         Ok(result.pane)
+    }
+
+    pub fn agents(&self) -> Result<Vec<AgentInfo>> {
+        let result: AgentListResult = self.json(&["agent", "list"])?;
+        Ok(result.agents)
+    }
+
+    pub fn workspaces(&self) -> Result<Vec<WorkspaceInfo>> {
+        let result: WorkspaceListResult = self.json(&["workspace", "list"])?;
+        Ok(result.workspaces)
     }
 
     /// Reads the agent's terminal scrollback with ANSI styling, which the parsers use as role hints.
@@ -175,6 +219,26 @@ mod tests {
     #[test]
     fn envelope_rejects_missing_result() {
         assert!(parse_envelope::<PaneResult>(br#"{"id":"x"}"#).is_err());
+    }
+
+    #[test]
+    fn parses_agent_and_workspace_lists() {
+        let agents: AgentListResult = parse_envelope(
+            br#"{"id":"x","result":{"type":"agent_list","agents":[{"agent":"droid","agent_status":"working","cwd":"/w","focused":true,"pane_id":"w:p1","tab_id":"w:t1","terminal_id":"t","terminal_title_stripped":"Fix it","workspace_id":"w","revision":1}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(agents.agents[0].agent, "droid");
+        assert_eq!(
+            agents.agents[0].terminal_title_stripped.as_deref(),
+            Some("Fix it")
+        );
+        assert!(agents.agents[0].focused);
+
+        let workspaces: WorkspaceListResult = parse_envelope(
+            br#"{"id":"x","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w","label":"lens","number":1}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(workspaces.workspaces[0].label.as_deref(), Some("lens"));
     }
 
     #[test]

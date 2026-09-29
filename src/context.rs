@@ -38,7 +38,12 @@ impl PluginContext {
 pub fn resolve(herdr: &Herdr, context: &PluginContext) -> Result<Target> {
     let env_pane = env::var("HERDR_PANE_ID").ok();
     let pane_id = target_pane_id(context, env_pane.as_deref())?;
-    let pane = herdr.pane(&pane_id)?;
+    resolve_pane(herdr, &pane_id)
+}
+
+/// Reads a known pane and requires it to run a detected agent.
+pub fn resolve_pane(herdr: &Herdr, pane_id: &str) -> Result<Target> {
+    let pane = herdr.pane(pane_id)?;
     let agent = require_agent(&pane)?;
     Ok(Target { pane, agent })
 }
@@ -84,6 +89,7 @@ mod tests {
             agent_status: "idle".into(),
             agent_session: None,
             cwd: None,
+            terminal_id: None,
         }
     }
 

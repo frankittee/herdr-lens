@@ -1,7 +1,11 @@
+mod agents;
 mod context;
 mod conversation;
 mod herdr;
+mod launch;
+mod load;
 mod parser;
+mod server;
 mod session;
 mod terminal;
 
@@ -10,9 +14,10 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use usage::{Args, Cli, Subcommands};
 
-use context::{PluginContext, Target};
-use conversation::{Conversation, Source, Transcript};
+use context::PluginContext;
+use conversation::Conversation;
 use herdr::Herdr;
+use server::{Pin, Viewer};
 
 /// Open the conversation of the agent in the invoking Herdr pane
 #[derive(Cli)]
@@ -26,9 +31,10 @@ struct HerdrLens {
 enum Command {
     Open(Open),
     Dump(Dump),
+    Serve(Serve),
 }
 
-/// Plugin action: read the invoking pane's conversation
+/// Plugin action: open the invoking pane's conversation in the browser
 #[derive(Args)]
 struct Open {}
 
@@ -36,12 +42,22 @@ struct Open {}
 #[derive(Args)]
 struct Dump {}
 
+/// Serve the viewer for one pane on loopback; started by `open`
+#[derive(Args)]
+#[usage(hide)]
+struct Serve {
+    /// Pane whose conversation is served
+    #[usage(long)]
+    pane: String,
+}
+
 fn main() -> ExitCode {
     let cli = HerdrLens::parse();
     let herdr = Herdr::from_env();
     let (result, notify_on_error) = match cli.command {
         Command::Open(_) => (open(&herdr), true),
         Command::Dump(_) => (dump(&herdr), false),
+        Command::Serve(args) => (serve(&herdr, &args.pane), false),
     };
     let Err(err) = result else {
         return ExitCode::SUCCESS;
@@ -54,62 +70,41 @@ fn main() -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// The web viewer is not implemented yet, so this only reports a summary.
+/// Reads the conversation once so problems surface as a Herdr toast, then hands off to the server.
 fn open(herdr: &Herdr) -> Result<()> {
-    let conversation = load_conversation(herdr)?;
-    eprintln!(
-        "Herdr Lens read {} messages from {} in pane {}; the web viewer is not implemented yet.",
-        conversation.messages.len(),
-        conversation.agent,
-        conversation.pane_id
-    );
-    Ok(())
+    let conversation = load_invoking_conversation(herdr)?;
+    let url = launch::start_server(&conversation.pane_id)?;
+    launch::open_browser(&url)
+}
+
+fn serve(herdr: &Herdr, pane_id: &str) -> Result<()> {
+    let viewer = bind_viewer(herdr, pane_id);
+    match &viewer {
+        Ok(viewer) => launch::report_ready(&viewer.url()),
+        Err(err) => launch::report_failure(err),
+    }
+    viewer?.run(herdr)
+}
+
+fn bind_viewer(herdr: &Herdr, pane_id: &str) -> Result<Viewer> {
+    let target = context::resolve_pane(herdr, pane_id)?;
+    let pin = Pin {
+        pane_id: target.pane.pane_id,
+        terminal_id: target.pane.terminal_id,
+    };
+    Viewer::bind(launch::dist_dir()?, pin)
 }
 
 fn dump(herdr: &Herdr) -> Result<()> {
-    let conversation = load_conversation(herdr)?;
+    let conversation = load_invoking_conversation(herdr)?;
     let json =
         serde_json::to_string_pretty(&conversation).context("failed to encode conversation")?;
     println!("{json}");
     Ok(())
 }
 
-fn load_conversation(herdr: &Herdr) -> Result<Conversation> {
+fn load_invoking_conversation(herdr: &Herdr) -> Result<Conversation> {
     let context = PluginContext::from_env()?;
     let target = context::resolve(herdr, &context)?;
-    let transcript = read_transcript(herdr, &target)?;
-    Ok(build_conversation(target, transcript))
-}
-
-/// Agents with a session reader get their complete history from the session Herdr reports for
-/// the pane. Other agents fall back to terminal scrollback, marked as `source: terminal`.
-fn read_transcript(herdr: &Herdr, target: &Target) -> Result<Transcript> {
-    let pane = &target.pane;
-    match target.agent.as_str() {
-        "droid" => session::droid::load(&pane.pane_id, pane.agent_session.as_ref()),
-        agent => {
-            let ansi = herdr.read_agent_ansi(&pane.pane_id)?;
-            Ok(Transcript {
-                source: Source::Terminal,
-                title: None,
-                messages: parser::parse_terminal(agent, &ansi),
-            })
-        }
-    }
-}
-
-fn build_conversation(target: Target, transcript: Transcript) -> Conversation {
-    let pane = target.pane;
-    Conversation {
-        agent: target.agent,
-        pane_id: pane.pane_id,
-        workspace_id: pane.workspace_id,
-        tab_id: pane.tab_id,
-        cwd: pane.cwd,
-        status: pane.agent_status,
-        session: pane.agent_session,
-        title: transcript.title,
-        source: transcript.source,
-        messages: transcript.messages,
-    }
+    load::conversation(herdr, target)
 }
