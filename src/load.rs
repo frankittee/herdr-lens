@@ -30,14 +30,27 @@ impl Choice {
 }
 
 pub fn conversation(herdr: &Herdr, target: Target, choice: Choice) -> Result<Conversation> {
-    let session_available =
-        has_session_reader(&target.agent) && target.pane.agent_session.is_some();
-    let transcript = if session_available && choice == Choice::Auto {
-        read_session(&target)?
-    } else {
-        read_terminal(herdr, &target)?
-    };
-    Ok(build_conversation(target, transcript, session_available))
+    let reported = has_session_reader(&target.agent) && target.pane.agent_session.is_some();
+    let mut session_error = None;
+    if reported && choice == Choice::Auto {
+        match read_session(&target) {
+            Ok(transcript) => return Ok(build_conversation(target, transcript, true, None)),
+            // A session Herdr reports but that cannot be read (wrong id, log not written yet)
+            // must not hide the pane; its scrollback is still there.
+            Err(err) => {
+                eprintln!("session unavailable for {}: {err:#}", target.pane.pane_id);
+                session_error = Some(format!("{err:#}"));
+            }
+        }
+    }
+    let transcript = read_terminal(herdr, &target)?;
+    let session_available = reported && session_error.is_none();
+    Ok(build_conversation(
+        target,
+        transcript,
+        session_available,
+        session_error,
+    ))
 }
 
 fn has_session_reader(agent: &str) -> bool {
@@ -68,6 +81,7 @@ fn build_conversation(
     target: Target,
     transcript: Transcript,
     session_available: bool,
+    session_error: Option<String>,
 ) -> Conversation {
     let pane = target.pane;
     let mut sources = vec![Source::Terminal];
@@ -85,6 +99,7 @@ fn build_conversation(
         title: transcript.title,
         source: transcript.source,
         sources,
+        session_error,
         messages: transcript.messages,
     }
 }

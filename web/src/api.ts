@@ -41,6 +41,8 @@ export type Conversation = {
   source: Source;
   /* Sources the viewer can switch between; `session` only when Herdr reports a readable session. */
   sources?: Source[];
+  /* Why the reported session could not be read, when the viewer fell back to the terminal. */
+  session_error?: string | null;
   messages: Message[];
 };
 

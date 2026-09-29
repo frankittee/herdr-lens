@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AgentSession, Conversation, Message, Source } from "../api";
+import type { Conversation, Message, Source } from "../api";
 import { ChevronIcon } from "../ui/icons";
 import { LoadingLine } from "../ui/loading";
 import { Pill, StatusPill } from "../ui/status";
@@ -68,12 +68,6 @@ function MessageBlock({ message }: { message: Message }) {
   }
 }
 
-/* Session references are ids or file paths; the file name is the recognizable part of a path. */
-function sessionLabel(session: AgentSession): string {
-  const name = session.value.split("/").at(-1) ?? session.value;
-  return name.length > 12 ? `${name.slice(0, 8)}…` : name;
-}
-
 function SourceSwitch({ conversation, onSource }: { conversation: Conversation; onSource: (source: Source) => void }) {
   // A viewer started before `sources` existed omits it; only its current source is known then.
   const hasSession = (conversation.sources ?? [conversation.source]).includes("session");
@@ -98,10 +92,12 @@ function SourceSwitch({ conversation, onSource }: { conversation: Conversation; 
     <div role="group" aria-label="Conversation source" className="ml-auto flex shrink-0 items-center gap-0.5 rounded-full bg-field p-0.5">
       {option(
         "session",
-        conversation.session && hasSession ? `Session ${sessionLabel(conversation.session)}` : "Session",
+        "Session",
         hasSession && conversation.session
           ? `Complete history from session ${conversation.session.value}`
-          : "Herdr has not reported a session for this pane",
+          : conversation.session_error
+            ? `Session log unavailable: ${conversation.session_error}`
+            : "Herdr has not reported a session for this pane",
         !hasSession,
       )}
       {option("terminal", "Terminal", "Terminal scrollback, may be incomplete")}

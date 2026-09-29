@@ -21,6 +21,8 @@ pub struct Conversation {
     pub source: Source,
     /// Sources the viewer can switch between; `session` only when Herdr reports a readable session.
     pub sources: Vec<Source>,
+    /// Why the reported session could not be read, when the viewer fell back to the terminal.
+    pub session_error: Option<String>,
     pub messages: Vec<Message>,
 }
 
