@@ -1,5 +1,6 @@
 [tools]
 bun = "latest"
+hk = "latest"
 mr-boxington = "latest"
 rust = "latest"
 
@@ -11,3 +12,4 @@ run = [
   "mise x -- bun run --cwd web build",
   "herdr plugin link .",
 ]
+

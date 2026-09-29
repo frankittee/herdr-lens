@@ -1,0 +1,36 @@
+amends "package://github.com/jdx/hk/releases/download/v2.4.0/hk@2.4.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.4.0/hk@2.4.0#/Builtins.pkl"
+
+min_hk_version = "2.4.0"
+
+local rust = List("**/*.rs", "Cargo.toml", "Cargo.lock")
+
+steps {
+  ["cargo-fmt"] {
+    glob = List("**/*.rs")
+    check = "mise x -- mbx fmt --check"
+    fix = "mise x -- mbx fmt"
+  }
+  ["cargo-clippy"] {
+    glob = rust
+    depends = "cargo-fmt"
+    check = "mise x -- mbx clippy --all-targets -- -D warnings"
+  }
+  ["web-tsc"] {
+    glob = List("web/**/*.ts", "web/**/*.tsx", "web/tsconfig*.json", "web/package.json")
+    dir = "web"
+    check = "mise x -- bun run tsc --noEmit --project tsconfig.json"
+  }
+}
+
+hooks {
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+  }
+  ["commit-msg"] {
+    steps {
+      ["conventional-commit"] = Builtins.check_conventional_commit
+    }
+  }
+}

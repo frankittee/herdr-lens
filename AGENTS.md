@@ -7,7 +7,9 @@ Build a Herdr plugin that opens the conversation of the agent in the invoking pa
 ## Repository layout
 
 - `herdr-plugin.toml`: Herdr plugin metadata and the `open` action.
-- `herdr-plugin.toml` build steps: `mise x -- mbx build --release`, then `mise x -- bun install` and `mise x -- bun run build` in `web/`. The action runs `target/release/herdr-lens open`.
+- `herdr-plugin.toml` build step: `sh scripts/install.sh`, which installs the prebuilt release package for `v<version>` (binary to `target/release/`, UI to `web/dist/`) and falls back to `mbx build --release` plus the `web/` bun build. The action runs `target/release/herdr-lens open`.
+- `.github/workflows/release-please.yml`: on pushes to `main`, release-please (`release-please-config.json`, `.release-please-manifest.json`) keeps a release PR that bumps `Cargo.toml`, `Cargo.lock`, `herdr-plugin.toml`, and `web/package.json` from Conventional Commits and updates `CHANGELOG.md`; merging it creates the tag and release, then calls `release.yml` to build assets. Do not bump versions by hand.
+- `.github/workflows/release.yml`: on `v*` tags or when called with a `tag` input, builds macOS and musl Linux packages (`herdr-lens-<target>.tar.gz` + `.sha256`) and uploads them to the release. The tag must equal the manifest `version`.
 - `src/`: Rust backend and action entrypoint (CLI via `usage-rs`, HTTP via `tiny_http`, ANSI via `anstyle-parse`).
   - `main.rs`: `open` and `serve --pane <id>` subcommands.
   - `herdr.rs`: thin wrapper over the Herdr CLI (`pane get`, `agent list`, `workspace list`, `agent read`); all Herdr calls go through it.
@@ -45,6 +47,7 @@ Build a Herdr plugin that opens the conversation of the agent in the invoking pa
 - `target/debug/herdr-lens serve --pane <pane-id>` prints `ready <url>` and serves that pane without opening a browser.
 - `mise x -- bun install --cwd web --frozen-lockfile && mise x -- bun run --cwd web build`
 - `mise x -- bun run --cwd web dev` serves the UI on loopback with synthetic data from `web/src/mock.ts` when no backend answers; production builds exclude the mock.
+- `hk.pkl` defines the pre-commit hook (`cargo-fmt`, `cargo-clippy`, `web-tsc`) and a commit-msg hook that enforces Conventional Commits (e.g. `feat: add x`); run `mise x -- hk install` once, and `mise x -- hk check --all` to run it manually.
 - `mise run build` builds both parts and runs `herdr plugin link .` for local linking; `herdr plugin link .` alone does not run manifest build steps.
 
 ## Notes
