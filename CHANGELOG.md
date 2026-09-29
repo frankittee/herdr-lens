@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/frankittee/herdr-lens/compare/v0.1.1...v0.1.2) (2026-09-29)
+
+
+### Bug Fixes
+
+* read the CLI version from Cargo.toml ([bbe5fba](https://github.com/frankittee/herdr-lens/commit/bbe5fba1264bc0382a430f749977cc08658669cb))
+
 ## [0.1.1](https://github.com/frankittee/herdr-lens/compare/v0.1.0...v0.1.1) (2026-09-29)
 
 

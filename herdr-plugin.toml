@@ -1,6 +1,6 @@
 id = "herdr-lens"
 name = "Herdr Lens"
-version = "0.1.1"
+version = "0.1.2"
 min_herdr_version = "0.7.4"
 description = "Open the current agent conversation in a local web view"
 platforms = ["macos", "linux"]
