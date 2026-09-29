@@ -23,7 +23,7 @@ use server::{Pin, Viewer};
 
 /// Open the conversation of the agent in the invoking Herdr pane
 #[derive(Cli)]
-#[usage(bin = "herdr-lens", version = "0.1.0")]
+#[usage(bin = "herdr-lens", version = env!("CARGO_PKG_VERSION"))]
 struct HerdrLens {
     #[usage(subcommand)]
     command: Command,
