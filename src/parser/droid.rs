@@ -116,6 +116,18 @@ fn is_chrome(line: &StyledLine) -> bool {
     text.starts_with('╭')
         || text.starts_with("Plan · ")
         || (text.starts_with(' ') && text.trim_start().starts_with(is_spinner))
+        || is_status_bar(text)
+}
+
+/// The status bar shows the autonomy mode first, e.g. ` Auto (Med) · allow reversible commands  Opus 5.5 (Low)`.
+fn is_status_bar(text: &str) -> bool {
+    let Some((mode, _)) = text
+        .strip_prefix(' ')
+        .and_then(|rest| rest.split_once(" · "))
+    else {
+        return false;
+    };
+    mode == "Manual" || mode == "Spec" || (mode.starts_with("Auto (") && mode.ends_with(')'))
 }
 
 fn is_spinner(c: char) -> bool {
@@ -204,6 +216,22 @@ mod tests {
             "Done. Summary:\nNote: bold text stays assistant\n\nSecond paragraph.\n\nChecks\n\n•  cargo test passes"
         );
         assert_eq!(messages[5].title.as_deref(), Some("Ask User\n1. Pick one?"));
+    }
+
+    #[test]
+    fn stops_at_the_status_bar() {
+        let ansi = [
+            "\x1b[1m⛬\x1b[0m  Done.",
+            "",
+            " \x1b[38;2;215;135;0mAuto (Med)\x1b[0m · allow reversible commands      Opus 5.5 (Low)",
+        ]
+        .join("\r\n");
+        let messages = parse(&parse_ansi(&ansi));
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].text, "Done.");
+        assert!(is_status_bar(" Manual · ask before changes"));
+        assert!(!is_status_bar("   Auto (Med) · indented body text"));
+        assert!(!is_status_bar(" Automatic · not a mode"));
     }
 
     #[test]
