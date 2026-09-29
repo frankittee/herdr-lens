@@ -121,7 +121,9 @@ export function ConversationPane({ conversation, error }: { conversation: Conver
     return (
       <main className="flex min-w-0 flex-1 items-center justify-center bg-page">
         {error ? (
-          <p className="max-w-md px-6 text-center text-[13px] text-red">Could not load the conversation: {error}</p>
+          <p className={`max-w-md px-6 text-center text-[13px] ${error === "This harness is not supported yet" ? "text-ink-2" : "text-red"}`}>
+            {error === "This harness is not supported yet" ? error : `Could not load the conversation: ${error}`}
+          </p>
         ) : (
           <LoadingLine label="Loading conversation" />
         )}

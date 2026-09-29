@@ -13,7 +13,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde_json::json;
 use tiny_http::{Header, Method, Request, Response, Server};
 
-use crate::herdr::Herdr;
+use crate::herdr::{AgentInfo, Herdr};
 use crate::{agents, context, load};
 
 /// Longer than the slowest background-tab polling browsers allow (about once a minute).
@@ -21,10 +21,12 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const TOKEN_BYTES: usize = 16;
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
-/// The pane this server is pinned to. Pane ids can be reused, so the terminal id is checked too.
+/// A selected agent. Pane ids can be reused, so terminal and agent identity are checked too.
+#[derive(Debug, PartialEq, Eq)]
 pub struct Pin {
     pub pane_id: String,
     pub terminal_id: Option<String>,
+    pub agent: String,
 }
 
 pub struct Viewer {
@@ -41,7 +43,7 @@ enum Route {
     AddSlash,
     File(PathBuf),
     Agents,
-    Conversation,
+    Conversation(Option<Pin>),
     NotFound,
 }
 
@@ -68,7 +70,12 @@ impl Viewer {
     }
 
     pub fn url(&self) -> String {
-        format!("http://127.0.0.1:{}/{}/", self.port, self.token)
+        format!(
+            "http://127.0.0.1:{}/{}/{}/",
+            self.port,
+            self.token,
+            pane_slug(&self.pin.pane_id)
+        )
     }
 
     pub fn run(mut self, herdr: &Herdr) -> Result<()> {
@@ -93,24 +100,38 @@ impl Viewer {
 
     fn reply(&mut self, herdr: &Herdr, route: Route) -> Reply {
         match route {
-            Route::AddSlash => redirect(&format!("/{}/", self.token)),
+            Route::AddSlash => redirect(&format!("/{}/{}/", self.token, pane_slug(&self.pin.pane_id))),
             Route::File(path) => self.file(&path),
             Route::Agents => self.api("api/agents", agents::list(herdr)),
-            Route::Conversation => {
-                let conversation = self.conversation(herdr);
+            Route::Conversation(selected) => {
+                let conversation = self.conversation(herdr, selected.as_ref());
                 self.api("api/conversation", conversation)
             }
             Route::NotFound => text(404, "not found"),
         }
     }
 
-    fn conversation(&self, herdr: &Herdr) -> Result<crate::conversation::Conversation> {
-        let target = context::resolve_pane(herdr, &self.pin.pane_id)?;
-        if self.pin.terminal_id.is_some() && target.pane.terminal_id != self.pin.terminal_id {
+    fn conversation(
+        &self,
+        herdr: &Herdr,
+        selected: Option<&Pin>,
+    ) -> Result<crate::conversation::Conversation> {
+        let pin = selected.unwrap_or(&self.pin);
+        if selected.is_some() && !selected_is_live(&herdr.agents()?, pin) {
+            bail!("selected agent is no longer available in Herdr");
+        }
+        let target = context::resolve_pane(herdr, &pin.pane_id)?;
+        if pin.terminal_id.is_some() && target.pane.terminal_id != pin.terminal_id {
             bail!(
                 "pane {} now runs a different terminal; open Herdr Lens again from that pane",
-                self.pin.pane_id
+                pin.pane_id
             );
+        }
+        if target.agent != pin.agent {
+            bail!("pane {} now runs a different agent", pin.pane_id);
+        }
+        if selected.is_some() && !agents::supports_conversation(&target.agent) {
+            bail!("This harness is not supported yet");
         }
         load::conversation(herdr, target)
     }
@@ -150,10 +171,18 @@ impl Viewer {
     }
 }
 
+fn selected_is_live(agents: &[AgentInfo], pin: &Pin) -> bool {
+    agents.iter().any(|agent| {
+        agent.pane_id == pin.pane_id
+            && agent.terminal_id == pin.terminal_id
+            && agent.agent == pin.agent
+    })
+}
+
 fn ensure_built(dist: &Path) -> Result<()> {
     if !dist.join("index.html").is_file() {
         bail!(
-            "web UI is not built: {} is missing; run `bun run --cwd web build`",
+            "web UI is not built: {} is missing; run `mise run build`",
             dist.join("index.html").display()
         );
     }
@@ -182,6 +211,22 @@ fn host_allowed(host: Option<&str>, port: u16) -> bool {
     })
 }
 
+fn pane_slug(pane_id: &str) -> String {
+    pane_id.replace(':', "-")
+}
+
+fn valid_pane_slug(slug: &str) -> bool {
+    let Some((workspace, pane)) = slug.split_once('-') else {
+        return false;
+    };
+    workspace.len() > 1
+        && workspace.starts_with('w')
+        && workspace[1..].bytes().all(|c| c.is_ascii_alphanumeric())
+        && pane.len() > 1
+        && pane.starts_with('p')
+        && pane[1..].bytes().all(|c| c.is_ascii_alphanumeric())
+}
+
 /// Maps a request URL to a route. Only plain relative file paths under `dist` are served.
 fn route(url: &str, token: &str) -> Route {
     let path = url.split(['?', '#']).next().unwrap_or("");
@@ -194,12 +239,43 @@ fn route(url: &str, token: &str) -> Route {
     let Some(rest) = rest.strip_prefix('/') else {
         return Route::NotFound;
     };
+    let rest = if let Some((slug, tail)) = rest.split_once('/') {
+        if valid_pane_slug(slug) { tail } else { rest }
+    } else if valid_pane_slug(rest) {
+        return Route::AddSlash;
+    } else {
+        rest
+    };
     match rest {
         "" | "index.html" => Route::File(PathBuf::from("index.html")),
         "api/agents" => Route::Agents,
-        "api/conversation" => Route::Conversation,
+        "api/conversation" => Route::Conversation(None),
+        _ if rest.starts_with("api/conversation/") => {
+            let ids = &rest["api/conversation/".len()..];
+            match ids.split('/').collect::<Vec<_>>().as_slice() {
+                [pane_id, terminal_id, agent]
+                    if [*pane_id, *terminal_id, *agent]
+                        .iter()
+                        .all(|id| safe_id(id)) =>
+                {
+                    Route::Conversation(Some(Pin {
+                        pane_id: (*pane_id).to_owned(),
+                        terminal_id: Some((*terminal_id).to_owned()),
+                        agent: (*agent).to_owned(),
+                    }))
+                }
+                _ => Route::NotFound,
+            }
+        }
         _ => safe_relative(rest).map_or(Route::NotFound, Route::File),
     }
+}
+
+fn safe_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b':' | b'_' | b'-'))
 }
 
 fn safe_relative(path: &str) -> Option<PathBuf> {
@@ -262,6 +338,18 @@ mod tests {
     #[test]
     fn routes_only_under_the_token() {
         assert_eq!(route("/abc123", TOKEN), Route::AddSlash);
+        assert_eq!(route("/abc123/w1-p2", TOKEN), Route::AddSlash);
+        assert_eq!(route("/abc123/w1-p2/", TOKEN), Route::File("index.html".into()));
+        assert_eq!(route("/abc123/wM-p1/", TOKEN), Route::File("index.html".into()));
+        assert_eq!(route("/abc123/w1-p2/api/agents", TOKEN), Route::Agents);
+        assert_eq!(
+            route("/abc123/w1-p2/api/conversation", TOKEN),
+            Route::Conversation(None)
+        );
+        assert_eq!(
+            route("/abc123/w1-p2/assets/index-1.js", TOKEN),
+            Route::File("assets/index-1.js".into())
+        );
         assert_eq!(route("/abc123/", TOKEN), Route::File("index.html".into()));
         assert_eq!(
             route("/abc123/?x=1", TOKEN),
@@ -270,7 +358,23 @@ mod tests {
         assert_eq!(route("/abc123/api/agents", TOKEN), Route::Agents);
         assert_eq!(
             route("/abc123/api/conversation", TOKEN),
-            Route::Conversation
+            Route::Conversation(None)
+        );
+        assert_eq!(
+            route("/abc123/api/conversation/w1:p2/term_2/codex", TOKEN),
+            Route::Conversation(Some(Pin {
+                pane_id: "w1:p2".into(),
+                terminal_id: Some("term_2".into()),
+                agent: "codex".into(),
+            }))
+        );
+        assert_eq!(
+            route("/abc123/api/conversation/w1:p2/term_2", TOKEN),
+            Route::NotFound
+        );
+        assert_eq!(
+            route("/abc123/api/conversation/w1:p2/term_2/../x", TOKEN),
+            Route::NotFound
         );
         assert_eq!(
             route("/abc123/assets/index-1.js", TOKEN),
@@ -306,5 +410,31 @@ mod tests {
         assert_eq!(a.len(), TOKEN_BYTES * 2);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn selected_agent_must_match_live_pane_terminal_and_kind() {
+        let agent = AgentInfo {
+            pane_id: "w1:p2".into(),
+            terminal_id: Some("term_2".into()),
+            workspace_id: "w1".into(),
+            tab_id: "w1:t1".into(),
+            agent: "codex".into(),
+            agent_status: "idle".into(),
+            terminal_title_stripped: None,
+            cwd: None,
+            focused: false,
+        };
+        let mut selected = Pin {
+            pane_id: "w1:p2".into(),
+            terminal_id: Some("term_2".into()),
+            agent: "codex".into(),
+        };
+        assert!(selected_is_live(std::slice::from_ref(&agent), &selected));
+        selected.terminal_id = Some("term_old".into());
+        assert!(!selected_is_live(std::slice::from_ref(&agent), &selected));
+        selected.terminal_id = agent.terminal_id.clone();
+        selected.agent = "claude".into();
+        assert!(!selected_is_live(&[agent], &selected));
     }
 }

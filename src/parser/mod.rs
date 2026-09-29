@@ -3,6 +3,7 @@
 //! Each agent gets its own parser. Agents without one, or output a parser cannot
 //! attribute, fall back to a single raw `Terminal` message so nothing is dropped.
 
+mod codex;
 mod droid;
 
 use crate::conversation::{push_line, Message, Role};
@@ -12,6 +13,7 @@ pub fn parse_terminal(agent: &str, ansi: &str) -> Vec<Message> {
     let lines = parse_ansi(ansi);
     let messages = match agent {
         "droid" => droid::parse(&lines),
+        "codex" => codex::parse(&lines),
         _ => Vec::new(),
     };
     if messages.is_empty() {

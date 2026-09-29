@@ -18,6 +18,7 @@ fn read_transcript(herdr: &Herdr, target: &Target) -> Result<Transcript> {
     let pane = &target.pane;
     match target.agent.as_str() {
         "droid" => session::droid::load(&pane.pane_id, pane.agent_session.as_ref()),
+        "codex" => session::codex::load(&pane.pane_id, pane.agent_session.as_ref()),
         agent => {
             let ansi = herdr.read_agent_ansi(&pane.pane_id)?;
             Ok(Transcript {

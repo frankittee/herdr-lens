@@ -1,4 +1,4 @@
-//! Agent overview for the sidebar: pane metadata only, never another pane's conversation.
+//! Agent overview for the sidebar: pane metadata and terminal identities, no conversation content.
 
 use std::collections::HashMap;
 
@@ -16,10 +16,12 @@ pub struct AgentList {
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct AgentSummary {
     pub pane_id: String,
+    pub terminal_id: Option<String>,
     pub workspace_id: String,
     pub workspace_label: Option<String>,
     pub tab_id: String,
     pub agent: String,
+    pub supported: bool,
     pub agent_status: String,
     pub title: Option<String>,
     pub cwd: Option<String>,
@@ -46,8 +48,10 @@ fn summarize(agents: Vec<AgentInfo>, workspaces: &[WorkspaceInfo]) -> AgentList 
                 .as_deref()
                 .and_then(clean_title),
             pane_id: agent.pane_id,
+            terminal_id: agent.terminal_id,
             workspace_id: agent.workspace_id,
             tab_id: agent.tab_id,
+            supported: supports_conversation(&agent.agent),
             agent: agent.agent,
             agent_status: agent.agent_status,
             cwd: agent.cwd,
@@ -55,6 +59,10 @@ fn summarize(agents: Vec<AgentInfo>, workspaces: &[WorkspaceInfo]) -> AgentList 
         })
         .collect();
     AgentList { agents }
+}
+
+pub fn supports_conversation(agent: &str) -> bool {
+    matches!(agent, "codex" | "droid")
 }
 
 /// Agents prefix terminal titles with status glyphs (Droid uses `⛬`) that Herdr keeps.
@@ -72,6 +80,7 @@ mod tests {
     fn agent(pane: &str, workspace: &str, title: Option<&str>) -> AgentInfo {
         AgentInfo {
             pane_id: pane.into(),
+            terminal_id: Some(format!("term-{pane}")),
             workspace_id: workspace.into(),
             tab_id: format!("{workspace}:t1"),
             agent: "droid".into(),
@@ -97,8 +106,10 @@ mod tests {
         );
         assert_eq!(list.agents[0].workspace_label.as_deref(), Some("lens"));
         assert_eq!(list.agents[0].title.as_deref(), Some("Build the UI"));
+        assert!(list.agents[0].supported);
         assert_eq!(list.agents[1].workspace_label, None);
         assert_eq!(list.agents[1].title, None);
+        assert!(!supports_conversation("claude"));
     }
 
     #[test]

@@ -29,6 +29,7 @@ pub struct PaneInfo {
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentInfo {
     pub pane_id: String,
+    pub terminal_id: Option<String>,
     pub workspace_id: String,
     pub tab_id: String,
     pub agent: String,
@@ -228,6 +229,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(agents.agents[0].agent, "droid");
+        assert_eq!(agents.agents[0].terminal_id.as_deref(), Some("t"));
         assert_eq!(
             agents.agents[0].terminal_title_stripped.as_deref(),
             Some("Fix it")

@@ -6,13 +6,13 @@ description = "Open the current agent conversation in a local web view"
 platforms = ["macos", "linux"]
 
 [[build]]
-command = ["cargo", "build", "--release"]
+command = ["mise", "x", "--", "mbx", "build", "--release"]
 
 [[build]]
-command = ["bun", "install", "--cwd", "web", "--frozen-lockfile"]
+command = ["mise", "x", "--", "bun", "install", "--cwd", "web", "--frozen-lockfile"]
 
 [[build]]
-command = ["bun", "run", "--cwd", "web", "build"]
+command = ["mise", "x", "--", "bun", "run", "--cwd", "web", "build"]
 
 [[actions]]
 id = "open"

@@ -2,3 +2,12 @@
 bun = "latest"
 mr-boxington = "latest"
 rust = "latest"
+
+[tasks.build]
+description = "Build the Rust backend and web UI, then link the plugin"
+run = [
+  "mise x -- mbx build --release",
+  "mise x -- bun install --cwd web --frozen-lockfile",
+  "mise x -- bun run --cwd web build",
+  "herdr plugin link .",
+]

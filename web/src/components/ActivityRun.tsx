@@ -224,7 +224,7 @@ function headerText(messages: Message[]): string {
 }
 
 export const ActivityRun = memo(function ActivityRun({ messages, live }: { messages: Message[]; live: boolean }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [openRows, setOpenRows] = useState<Set<number>>(() => new Set());
 
   const toggleRow = (index: number) =>

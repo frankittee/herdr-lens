@@ -91,6 +91,7 @@ fn bind_viewer(herdr: &Herdr, pane_id: &str) -> Result<Viewer> {
     let pin = Pin {
         pane_id: target.pane.pane_id,
         terminal_id: target.pane.terminal_id,
+        agent: target.agent,
     };
     Viewer::bind(launch::dist_dir()?, pin)
 }

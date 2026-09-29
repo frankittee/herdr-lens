@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import type { AgentSummary } from "../api";
 import { EyeIcon, SidebarIcon } from "../ui/icons";
-import { STATUS_LABELS, StatusMark, StatusPill } from "../ui/status";
+import { STATUS_LABELS, StatusPill } from "../ui/status";
+import { AgentIcon } from "./AgentIcon";
 
 const FULL_WIDTH = 300;
 const RAIL_WIDTH = 52;
@@ -24,29 +25,33 @@ function describe(agent: AgentSummary, workspace: string): string {
   return [`${agent.agent} (${agent.pane_id})`, agent.title, `${workspace} · ${status}`].filter(Boolean).join("\n");
 }
 
-function AgentRow({ agent, workspace, current }: { agent: AgentSummary; workspace: string; current: boolean }) {
+function AgentRow({ agent, workspace, current, onSelect }: { agent: AgentSummary; workspace: string; current: boolean; onSelect: (agent: AgentSummary) => void }) {
   return (
-    <li
-      aria-current={current ? "true" : undefined}
-      title={describe(agent, workspace)}
-      className={`sidebar-row relative flex items-center gap-2.5 overflow-hidden border-b border-line py-2 pr-2.5 pl-1.5 last:border-b-0 ${
-        current ? "bg-accent-tint" : ""
-      }`}
-    >
-      {current && <span aria-hidden className="sidebar-copy absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-accent" />}
-      <span className="flex size-6 shrink-0 items-center justify-center">
-        <StatusMark status={agent.agent_status} />
-      </span>
-      <span className="sidebar-copy flex min-w-0 flex-1 flex-col">
-        <span className="flex items-center gap-1.5">
-          <span className="truncate text-[13px] font-medium text-ink">{agent.agent}</span>
-          <span className="shrink-0 font-mono text-[11px] text-ink-3">{agent.pane_id}</span>
+    <li className="border-b border-line last:border-b-0">
+      <button
+        type="button"
+        aria-current={current ? "page" : undefined}
+        aria-label={describe(agent, workspace).replaceAll("\n", ", ")}
+        title={describe(agent, workspace)}
+        disabled={!agent.terminal_id}
+        onClick={() => onSelect(agent)}
+        className={`sidebar-row relative flex w-full items-center gap-2.5 overflow-hidden py-2 pr-2.5 pl-1.5 text-left transition-colors hover:bg-hover-2 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ${
+          current ? "bg-accent-tint hover:bg-accent-tint" : ""
+        }`}
+      >
+        {current && <span aria-hidden className="sidebar-copy absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-accent" />}
+        <AgentIcon agent={agent.agent} working={agent.agent_status === "working"} />
+        <span className="sidebar-copy flex min-w-0 flex-1 flex-col">
+          <span className="flex items-center gap-1.5">
+            <span className="truncate text-[13px] font-medium text-ink">{agent.agent}</span>
+            <span className="shrink-0 font-mono text-[11px] text-ink-3">{agent.pane_id}</span>
+          </span>
+          <span className="truncate text-[12px] text-ink-2">{agent.title || agent.cwd || "No title"}</span>
         </span>
-        <span className="truncate text-[12px] text-ink-2">{agent.title || agent.cwd || "No title"}</span>
-      </span>
-      <span className="sidebar-copy flex shrink-0">
-        <StatusPill status={agent.agent_status} />
-      </span>
+        <span className="sidebar-copy flex shrink-0">
+          <StatusPill status={agent.agent_status} />
+        </span>
+      </button>
     </li>
   );
 }
@@ -78,6 +83,7 @@ export function AgentSidebar({
   collapsed,
   overlay,
   onToggle,
+  onSelect,
 }: {
   agents: AgentSummary[] | null;
   currentPaneId: string | null;
@@ -85,6 +91,7 @@ export function AgentSidebar({
   collapsed: boolean;
   overlay: boolean;
   onToggle: () => void;
+  onSelect: (agent: AgentSummary) => void;
 }) {
   const groups = agents ? groupByWorkspace(agents) : [];
   const working = agents?.filter((agent) => agent.agent_status === "working").length ?? 0;
@@ -155,6 +162,7 @@ export function AgentSidebar({
                       agent={agent}
                       workspace={group.label}
                       current={agent.pane_id === currentPaneId}
+                      onSelect={onSelect}
                     />
                   ))}
                 </ul>

@@ -176,8 +176,12 @@ body {
   background-color: transparent;
   box-shadow: none;
 }
+[data-collapsed="true"] .sidebar-card li {
+  border-color: transparent;
+}
 [data-collapsed="true"] .sidebar-row {
   width: 36px;
+  padding-inline: 2px;
   border-color: transparent;
   border-radius: 8px;
 }
